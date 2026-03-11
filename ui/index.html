@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw – Multi-Agent AI</title>
+  <meta name="description" content="OpenClaw multi-agent RAG system: LangGraph + Groq + ChromaDB" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- ─── Sidebar ─────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div class="logo">
+      <span class="logo-icon">⚙️</span>
+      <span class="logo-text">OpenClaw</span>
+      <span class="logo-badge">v2</span>
+    </div>
+
+    <nav class="agent-legend">
+      <p class="legend-title">Agent Mesh</p>
+      <div class="agent-chip" data-agent="plan-forecast_agent">
+        <span class="dot teal"></span> Plan-Forecast Agent
+      </div>
+      <div class="agent-chip" data-agent="contract_agent">
+        <span class="dot violet"></span> Contract Agent
+      </div>
+      <div class="agent-chip" data-agent="general_agent">
+        <span class="dot slate"></span> General Agent
+      </div>
+      <div class="agent-chip" data-agent="both">
+        <span class="dot orange"></span> Synthesizer (Both)
+      </div>
+    </nav>
+
+    <div class="sidebar-actions">
+      <button id="btn-ingest" class="btn-secondary" title="Re-index documents from data/docs">
+        🗄️ Re-Ingest Docs
+      </button>
+      <button id="btn-clear" class="btn-ghost">🗑️ Clear Chat</button>
+    </div>
+
+    <div class="stack-info">
+      <p class="stack-title">Stack</p>
+      <div class="stack-row"><span>LLM</span><span class="val">Groq / Cloud</span></div>
+      <div class="stack-row"><span>Orchestrator</span><span class="val">LangGraph</span></div>
+      <div class="stack-row"><span>Vector DB</span><span class="val">ChromaDB</span></div>
+      <div class="stack-row"><span>Gateway</span><span class="val">Node.js</span></div>
+      <div class="stack-row"><span>Embeddings</span><span class="val">all-mpnet-base-v2</span></div>
+    </div>
+  </aside>
+
+  <!-- ─── Main Chat ────────────────────────────────────────────────────── -->
+  <main id="main">
+    <header id="topbar">
+      <button id="btn-menu" aria-label="Toggle sidebar">☰</button>
+      <h1>Multi-Agent Project Assistant</h1>
+      <div id="status-indicator">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-label">Connecting…</span>
+      </div>
+    </header>
+
+    <section id="messages" aria-label="Chat messages">
+      <!-- Welcome card -->
+      <div class="message assistant welcome-card">
+        <div class="avatar">🤖</div>
+        <div class="bubble">
+          <p class="welcome-title">Hello! I'm your Project Management Assistant.</p>
+          <p>Ask me about <strong>project plans</strong>, <strong>forecasts</strong>,
+            <strong>contracts</strong>, or anything else. I'll route your query to the
+            right specialist automatically.
+          </p>
+          <div class="example-chips">
+            <button class="chip" data-q="Give me plan and forecast details for Boston?">📊 Boston Plan &
+              Forecast</button>
+            <button class="chip" data-q="Give details of Boston contract?">📜 Boston Contract</button>
+            <button class="chip" data-q="Compare plan and contract for Boston">⚖️ Compare Plan vs Contract</button>
+            <button class="chip" data-q="Write a haiku about project management">✨ Fun question</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer id="input-area">
+      <div id="input-wrapper">
+        <textarea id="user-input" placeholder="Ask about plans, forecasts, contracts…" rows="1"
+          aria-label="Your message"></textarea>
+        <button id="btn-send" aria-label="Send message">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
+      <p id="hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</p>
+    </footer>
+  </main>
+
+  <!-- ─── Thinking process drawer ──────────────────────────────────────── -->
+  <div id="thinking-drawer" class="drawer hidden">
+    <div class="drawer-header">
+      <span>🧠 Thinking Process</span>
+      <button id="btn-close-drawer">✕</button>
+    </div>
+    <pre id="thinking-content"></pre>
+  </div>
+
+  <div id="overlay" class="hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
