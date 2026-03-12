@@ -7,7 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./data/chroma_db")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+def resolve_path(env_val):
+    if os.path.isabs(env_val): return env_val
+    return os.path.abspath(os.path.join(PROJECT_ROOT, env_val))
+
+CHROMA_DB_PATH = resolve_path(os.getenv("CHROMA_DB_PATH", "./data/chroma_db"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-mpnet-base-v2")
 
 # Lazy singletons so embedding model is loaded only once

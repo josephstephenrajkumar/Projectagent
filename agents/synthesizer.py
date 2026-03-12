@@ -36,9 +36,18 @@ def synthesizer_node(state: AgentState) -> dict:
     combined = "\n".join(outputs)
     prompt = SUPERVISOR_PROMPT.format(reports=combined)
 
-    response = llm.invoke(
-        [SystemMessage(content=prompt), HumanMessage(content=query)]
-    )
+    history = state.get("history", [])
+    messages = [SystemMessage(content=prompt)]
+    for msg in history:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        else:
+            from langchain_core.messages import AIMessage
+            messages.append(AIMessage(content=msg["content"]))
+
+    messages.append(HumanMessage(content=query))
+
+    response = llm.invoke(messages)
 
     return {
         "response": response.content,

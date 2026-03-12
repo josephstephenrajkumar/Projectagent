@@ -1,0 +1,26 @@
+in the docs I have expanded the collection.  There is another folder estimation-milestone. 
+
+ 1. The user with a role of Project Manager will have permission to create a new project. The project manager will upload the contract word document and estimate-milestone excel for the project. 
+
+the project manager also keys in the Project Name, Project code and opportunity  ID. The ProjectCreation Agent then willl invoke the ingestion agent and create update the collection. The values keyed in will be associated with the collection created.
+
+After the ingestion is completed, the ProjectCreation Agent will collect the details from the "contract" and "estimation-milestone" collection for the Project ID and Opportunity ID , Project Name.
+
+Use also the first page of "ProjectAgent Feb 14.pdf" to have an understanding of the day0, day1, day2, day3, day4 flow and process.
+
+An earlier project Agent python code extracted useful information from the folling:
+1. contract.docx
+2. estimation-milestone.xlsx
+
+See what prompts would be used. The usage will be in two places.
+
+1. First when the project is created in the system, the agent will extract the information necessry and update the project table.
+2. Before inserting a new record let the agent check with thett user the extracted ddata maps to the data transfer objects of the "project" table.
+3. Then db agent has to make sure there is no duplicate entry for the same project code and opportunity code.
+
+
+Make use of the prompts from the file :project_agent_basic.py
+
+Then next the dbAgent will be invoked and it will update the various entities.
+
+In order to enhance the retrieval of information from the collection, build a 

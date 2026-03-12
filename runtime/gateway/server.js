@@ -82,13 +82,69 @@ app.post("/ingest", async (req, res) => {
     }
 });
 
+// ── POST /project/create  →  multipart passthrough to orchestrator ───────────
+app.post("/project/create", async (req, res) => {
+    console.log("[Gateway] → Orchestrator: /project/create");
+    try {
+        // We need to forward the raw multipart request
+        // Collect the raw body and forward with same headers
+        const contentType = req.headers["content-type"];
+        const chunks = [];
+        req.on("data", chunk => chunks.push(chunk));
+        req.on("end", async () => {
+            try {
+                const body = Buffer.concat(chunks);
+                const upstream = await fetch(`${ORCHESTRATOR_URL}/project/create`, {
+                    method: "POST",
+                    headers: { "Content-Type": contentType },
+                    body: body,
+                });
+                const data = await upstream.json();
+                if (!upstream.ok) {
+                    return res.status(upstream.status).json(data);
+                }
+                console.log("[Gateway] ← Project extraction complete");
+                return res.json(data);
+            } catch (err) {
+                console.error("[Gateway] Orchestrator error:", err.message);
+                return res.status(503).json({ error: "Cannot reach orchestrator." });
+            }
+        });
+    } catch (err) {
+        console.error("[Gateway] Connection error:", err.message);
+        return res.status(503).json({ error: "Cannot reach orchestrator." });
+    }
+});
+
+// ── POST /project/confirm  →  JSON passthrough to orchestrator ──────────────
+app.post("/project/confirm", async (req, res) => {
+    console.log("[Gateway] → Orchestrator: /project/confirm");
+    try {
+        const upstream = await fetch(`${ORCHESTRATOR_URL}/project/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(req.body),
+        });
+        const data = await upstream.json();
+        if (!upstream.ok) {
+            return res.status(upstream.status).json(data);
+        }
+        console.log("[Gateway] ← Project confirmed:", data.status);
+        return res.json(data);
+    } catch (err) {
+        console.error("[Gateway] Connection error:", err.message);
+        return res.status(503).json({ error: "Cannot reach orchestrator." });
+    }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 const server = createServer(app);
 server.listen(GATEWAY_PORT, () => {
     console.log(`\n╔══════════════════════════════════════════════════╗`);
-    console.log(`║  OpenClaw Runtime  ·  Gateway v2.0               ║`);
+    console.log(`║  OpenClaw Runtime  ·  Gateway v3.0               ║`);
     console.log(`╠══════════════════════════════════════════════════╣`);
     console.log(`║  Chat UI   →  http://localhost:${GATEWAY_PORT}              ║`);
     console.log(`║  Proxy     →  ${ORCHESTRATOR_URL}           ║`);
     console.log(`╚══════════════════════════════════════════════════╝\n`);
 });
+

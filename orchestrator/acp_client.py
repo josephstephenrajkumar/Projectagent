@@ -19,17 +19,25 @@ load_dotenv()
 ACP_BASE_URL = f"http://{os.getenv('ORCHESTRATOR_HOST', 'localhost')}:{os.getenv('ACP_PORT', '8100')}"
 
 
-def _call_acp_agent(agent_name: str, query: str, agent_outputs: list[str] = None) -> str:
+def _call_acp_agent(agent_name: str, query: str, agent_outputs: list[str] = None, history: list[dict] = None) -> str:
     """
     Synchronously call an ACP agent via the /runs endpoint.
     Returns the text content from the first output MessagePart.
     """
     agent_outputs = agent_outputs or []
+    history = history or []
     parts = [{"content_type": "text/plain", "content": query}]
     if agent_outputs:
         parts.append({
             "content_type": "application/json",
             "content": json.dumps(agent_outputs),
+        })
+    if history:
+        # Pass history as a serialised JSON part
+        parts.append({
+            "content_type": "application/json",
+            "content": json.dumps(history),
+            "name": "history" # Metadata-ish hint for receiver
         })
 
     payload = {

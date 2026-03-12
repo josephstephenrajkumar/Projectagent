@@ -11,13 +11,21 @@
 import { config } from "dotenv";
 config();
 
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '../../');
+const resolvePath = (envVal) => path.isAbsolute(envVal) ? envVal : path.join(PROJECT_ROOT, envVal);
+
 export const chromaConnector = {
     name: "ChromaConnector",
     description: "Configuration connector for the local ChromaDB vector store.",
 
     /** Absolute or relative path used by the Python persistence client. */
     get dbPath() {
-        return process.env.CHROMA_DB_PATH || "./data/chroma_db";
+        return resolvePath(process.env.CHROMA_DB_PATH || "./data/chroma_db");
     },
 
     /** HuggingFace sentence-transformer model used for embeddings. */
@@ -27,7 +35,7 @@ export const chromaConnector = {
 
     /** Directory containing source documents to be ingested. */
     get sourceDataDir() {
-        return process.env.SOURCE_DATA_DIR || "./data/docs";
+        return resolvePath(process.env.SOURCE_DATA_DIR || "./data/docs");
     },
 
     /** Serialise connector config for logging / debugging. */

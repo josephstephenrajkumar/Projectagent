@@ -37,6 +37,11 @@ from agents.forecast_agent import forecast_agent_node
 from agents.contract_agent import contract_agent_node
 from agents.general_agent import general_agent_node
 from agents.synthesizer import synthesizer_node
+from agents.delete_project_agent import delete_project_agent_node
+from agents.pricing_agent import pricing_agent_node
+from agents.risk_agent import risk_agent_node
+from agents.raid_update_agent import raid_update_agent_node
+from agents.sql_agent import sql_agent_node
 
 ACP_PORT = int(os.getenv("ACP_PORT", "8100"))
 
@@ -68,30 +73,74 @@ class AcpAgentManifest(BaseModel):
 # ── Agent registry ─────────────────────────────────────────────────────────
 AGENT_REGISTRY: dict[str, dict] = {
     "plan-forecast-agent": {
-        "description": "RAG agent for project planning, resource forecasting, hours, and cost data.",
-        "handler": lambda q, outputs, debug: forecast_agent_node({
-            "query": q, "agent_outputs": outputs, "debug_log": debug,
+        "name": "plan-forecast-agent",
+        "description": "Answers questions about project planning, schedules, resources, and hours capacity.",
+        "handler": lambda q, outputs, history, debug: forecast_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
             "response": "", "next_node": "",
         }),
     },
     "contract-agent": {
-        "description": "RAG agent for contracts, SOWs, milestones, and pricing terms.",
-        "handler": lambda q, outputs, debug: contract_agent_node({
-            "query": q, "agent_outputs": outputs, "debug_log": debug,
+        "name": "contract-agent",
+        "description": "Answers questions about SOWs, statements of work, and formal deliverables.",
+        "handler": lambda q, outputs, history, debug: contract_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
             "response": "", "next_node": "",
         }),
     },
     "general-agent": {
-        "description": "General-purpose conversational agent; free-form LLM without RAG.",
-        "handler": lambda q, outputs, debug: general_agent_node({
-            "query": q, "agent_outputs": outputs, "debug_log": debug,
+        "name": "general-agent",
+        "description": "Handles general conversational queries unrelated to specialized project data.",
+        "handler": lambda q, outputs, history, debug: general_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
             "response": "", "next_node": "",
         }),
     },
     "synthesizer-agent": {
-        "description": "Supervisor agent that merges multiple specialist reports into one answer.",
-        "handler": lambda q, outputs, debug: synthesizer_node({
-            "query": q, "agent_outputs": outputs, "debug_log": debug,
+        "name": "synthesizer-agent",
+        "description": "Merges outputs from multiple agents into a coherent final response.",
+        "handler": lambda q, outputs, history, debug: synthesizer_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
+            "response": "", "next_node": "",
+        }),
+    },
+    "delete-project-agent": {
+        "name": "delete-project-agent",
+        "description": "Agent responsible for deleting projects from the database based on Project Number or Opportunity ID.",
+        "handler": lambda q, outputs, history, debug: delete_project_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
+            "response": "", "next_node": "",
+        }),
+    },
+    "pricing-agent": {
+        "name": "pricing-agent",
+        "description": "Extracts pricing and payment schedules from the DB or RAG. Highly specialized for contracts and SOWs.",
+        "handler": lambda q, outputs, history, debug: pricing_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
+            "response": "", "next_node": "",
+        }),
+    },
+    "risk-agent": {
+        "name": "risk-agent",
+        "description": "Extracts contract and operational risk analysis from the RAID log, Work Packages, or RAG.",
+        "handler": lambda q, outputs, history, debug: risk_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
+            "response": "", "next_node": "",
+        }),
+    },
+    "raid-update-agent": {
+        "name": "raid-update-agent",
+        "description": "Updates or creates operational RAID (Risk, Action, Issue, Decision) items using natural language.",
+        "handler": lambda q, outputs, history, debug: raid_update_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
+            "response": "", "next_node": "",
+        }),
+    },
+    "sql-agent": {
+        "name": "sql-agent",
+        "description": "Primary Text-to-SQL logic agent mapping query to structured project database schema.",
+        "handler": lambda q, outputs, history, debug: sql_agent_node({
+            "query": q, "agent_outputs": outputs, "history": history, "debug_log": debug,
             "response": "", "next_node": "",
         }),
     },
@@ -136,22 +185,28 @@ def create_run(req: AcpRunRequest):
     # Extract text query from the first message part
     query = ""
     agent_outputs: list[str] = []
+    history: list[dict] = []
     for msg in req.input:
         for part in msg.parts:
             if part.content_type == "text/plain":
                 query += part.content + "\n"
             elif part.content_type == "application/json":
-                # Pass-through serialised agent_outputs from synthesizer calls
                 import json
                 try:
-                    agent_outputs = json.loads(part.content)
+                    data = json.loads(part.content)
+                    # Heuristic: if it's a list, check if it's history or agent_outputs
+                    if isinstance(data, list):
+                        if any(isinstance(item, dict) and "role" in item for item in data):
+                            history = data
+                        else:
+                            agent_outputs = data
                 except Exception:
                     pass
     query = query.strip()
 
     try:
         handler = AGENT_REGISTRY[agent_name]["handler"]
-        result = handler(query, agent_outputs, "")
+        result = handler(query, agent_outputs, history, "")
         # Collect the output text
         if "response" in result and result["response"]:
             text = result["response"]

@@ -20,7 +20,7 @@
     <div class="logo">
       <span class="logo-icon">⚙️</span>
       <span class="logo-text">OpenClaw</span>
-      <span class="logo-badge">v2</span>
+      <span class="logo-badge">v3</span>
     </div>
 
     <nav class="agent-legend">
@@ -37,6 +37,21 @@
       <div class="agent-chip" data-agent="both">
         <span class="dot orange"></span> Synthesizer (Both)
       </div>
+      <div class="agent-chip" data-agent="project_creation">
+        <span class="dot green"></span> Project Creation
+      </div>
+      <div class="agent-chip" data-agent="delete_agent">
+        <span class="dot red"></span> Delete Project Agent
+      </div>
+      <div class="agent-chip" data-agent="pricing_agent">
+        <span class="dot yellow"></span> Pricing Agent
+      </div>
+      <div class="agent-chip" data-agent="risk_agent">
+        <span class="dot" style="background-color: #ffaa00;"></span> Risk Agent
+      </div>
+      <div class="agent-chip" data-agent="raid_update_agent">
+        <span class="dot" style="background-color: #00eeff;"></span> RAID Update
+      </div>
     </nav>
 
     <div class="sidebar-actions">
@@ -44,6 +59,12 @@
         🗄️ Re-Ingest Docs
       </button>
       <button id="btn-clear" class="btn-ghost">🗑️ Clear Chat</button>
+    </div>
+
+    <div class="sidebar-actions" style="margin-top:4px">
+      <p class="legend-title">Navigation</p>
+      <button id="nav-chat" class="btn-secondary nav-active">💬 Chat</button>
+      <button id="nav-create" class="btn-secondary">📁 Create Project</button>
     </div>
 
     <div class="stack-info">
@@ -66,6 +87,17 @@
         <span id="status-label">Connecting…</span>
       </div>
     </header>
+
+    <!-- RAID Alerts Banner -->
+    <div id="raid-alerts-container"
+      style="display: none; background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 12px 16px; margin: 16px; border-radius: 6px;">
+      <h3 style="margin: 0 0 8px 0; color: #b91c1c; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;">
+        ⚠️ Action Required: Overdue RAID Items
+      </h3>
+      <ul id="raid-alerts-list"
+        style="margin: 0; padding-left: 20px; color: #7f1d1d; font-size: 0.85rem; line-height: 1.5;">
+      </ul>
+    </div>
 
     <section id="messages" aria-label="Chat messages">
       <!-- Welcome card -->
@@ -102,6 +134,82 @@
       <p id="hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line</p>
     </footer>
   </main>
+
+  <!-- ─── Project Creation Panel ─────────────────────────────────────── -->
+  <section id="create-panel" class="hidden-panel">
+    <header id="topbar-create">
+      <button id="btn-menu-create" aria-label="Toggle sidebar">☰</button>
+      <h1>📁 Create New Project</h1>
+    </header>
+
+    <div id="create-content">
+      <form id="project-form" class="project-form">
+        <div class="form-group">
+          <label for="inp-project-name">Project Name *</label>
+          <input type="text" id="inp-project-name" placeholder="e.g. Boston SMAX Migration" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-project-code">Project Code *</label>
+            <input type="text" id="inp-project-code" placeholder="e.g. BOSTON-001" required />
+          </div>
+          <div class="form-group">
+            <label for="inp-opportunity-id">Opportunity ID (optional – from contract)</label>
+            <input type="text" id="inp-opportunity-id"
+              placeholder="e.g. O-1932849 (extracted from contract if blank)" />
+          </div>
+        </div>
+        <h3 class="upload-section-title">📂 Upload Files for Collections</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-contract-file">
+              <strong>📄 Contract Collection</strong> (.docx / .doc / .pdf) *
+            </label>
+            <small class="upload-hint">SOW document with parties, pricing, payment schedule, engagement dates</small>
+            <input type="file" id="inp-contract-file" accept=".docx,.doc,.pdf" required />
+            <span id="contract-file-status" class="file-status"></span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-estimation-file">
+              <strong>📊 Estimation-Milestone Collection</strong> (.xlsx) *
+            </label>
+            <small class="upload-hint">Excel with sheets: Resources (hours, costs), Travel &amp; Expense, Other
+              Costs</small>
+            <input type="file" id="inp-estimation-file" accept=".xlsx,.xls" required />
+            <span id="estimation-file-status" class="file-status"></span>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-erp-file">
+              <strong>🗃️ Project Collection</strong> (.xlsx) – optional
+            </label>
+            <small class="upload-hint">ERP Project Data with project metadata (codes, dates, financial data)</small>
+            <input type="file" id="inp-erp-file" accept=".xlsx,.xls" />
+            <span id="erp-file-status" class="file-status"></span>
+          </div>
+        </div>
+        <button type="submit" id="btn-create-project" class="btn-primary">
+          🚀 Create Project
+        </button>
+        <div id="create-status" class="create-status"></div>
+      </form>
+
+      <!-- Confirmation table (hidden until extraction completes) -->
+      <div id="confirmation-section" class="hidden-panel">
+        <h2>📋 Review Extracted Data</h2>
+        <p class="confirm-hint">Review the data below. You can edit any cell before confirming.</p>
+        <div id="extracted-table-wrapper"></div>
+        <div class="confirm-actions">
+          <button id="btn-confirm-save" class="btn-primary">✅ Confirm & Save</button>
+          <button id="btn-cancel-create" class="btn-ghost">Cancel</button>
+        </div>
+        <div id="confirm-status" class="create-status"></div>
+      </div>
+    </div>
+  </section>
 
   <!-- ─── Thinking process drawer ──────────────────────────────────────── -->
   <div id="thinking-drawer" class="drawer hidden">

@@ -22,11 +22,20 @@ SYSTEM_PROMPT = (
 
 def general_agent_node(state: AgentState) -> dict:
     query = state["query"]
+    history = state.get("history", [])
     debug = state.get("debug_log", "")
 
-    response = llm.invoke(
-        [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=query)]
-    )
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
+    for msg in history:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        else:
+            from langchain_core.messages import AIMessage
+            messages.append(AIMessage(content=msg["content"]))
+    
+    messages.append(HumanMessage(content=query))
+
+    response = llm.invoke(messages)
 
     return {
         "response": response.content,
