@@ -1,0 +1,16 @@
+I have implemented all 5 features according to your feedback:
+
+Cascading Deletion: Updated the init_sqlite_db.py to add ON DELETE CASCADE to all child tables, and optimized the delete_project_agent.py to perform a clean PRAGMA-enabled cascade delete of a project and all its associated data simultaneously.
+Chat Memory: Replaced the in-memory dictionary in main.py with a persistent file-backed JSON store (data/sessions.json). The system now remembers your conversation across server restarts.
+Smart Routing: The SQL Agent (sql_agent.py) now explicitly checks if the SQLite database query fails or returns zero results. If so, it gracefully falls back to the RAG system and appends a clear message to the chat explaining exactly why it skipped the database.
+SQL Transparency: The actual SQLite query generated and executed by the LLM is now displayed directly in your chat interface inside a markdown code block, allowing you to audit the data extraction process.
+RAG Metadata Injection & Targeted Search: tools/retrieval.py now supports metadata where filtering. I updated both contract_agent.py and forecast_agent.py to use a new extractor prompt (_extract_project_code_for_filter) that identifies the targeted project from your query/history. It uses this code to filter the ChromaDB search strictly to that project's documents, drastically improving speed and reducing cross-project hallucinations.
+I have updated the startup script (start.sh) to launch both the backend orchestrator and the frontend UI concurrently, streaming both logs into the same terminal.
+
+You can launch the system using:
+
+bash
+./start.sh
+and view the AI UI at http://localhost:3000
+
+Updated walkthrough with SQL Schema and Data Manager details.

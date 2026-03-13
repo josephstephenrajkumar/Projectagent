@@ -1,0 +1,30 @@
+The "Pattern Learning" algorithm I've implemented for the SQL Inference Agent is a Reinforcement Learning-lite (RL-lite) via Dynamic Few-Shot prompting.
+
+Here is the breakdown of the logic:
+
+1. The Storage (Knowledge Base)
+In your database, I created a QueryFeedback table. Every time a query is generated and confirmed as successful (or given positive feedback), we store:
+
+The Original User Query (e.g., "Show high priority risks for 202021")
+The Successful SQL Pattern (the exact JOINs and filter logic)
+A Feedback Score (Weighting successful patterns higher)
+2. The Discovery (Jaccard-lite Similarity)
+When you ask a new question, the system runs a Bag-of-Words set intersection algorithm:
+
+It strips your new query into a set of unique keywords.
+It compares these keywords against all previously successful queries in the database.
+It calculates a Similarity Ratio: 
+
+(Intersection of Words) / (Total Words)
+.
+If the similarity is > 70%, the system identifies this as a "known pattern."
+3. The "Inference" (Dynamic Pattern Reuse)
+Instead of just blindly running the old SQL (which would result in "hardcoding" the old project ID), the system uses In-Context Learning:
+
+The system retrieves the past query and past SQL.
+It injects this into the LLM's system prompt as a SUCCESSFUL PATTERN hint.
+The LLM then acts as a dynamic compiler: It sees the logic used before (e.g., "Ah, for high-priority risks, I should JOIN RAIDitems with Project and filter by Status='High'") and then generates brand new SQL using that logic, but substituting the current project ID or customer name from your current question.
+Why this is powerful:
+It avoids hardcoding: Every query is still "built from scratch" by the LLM, so it's always dynamic.
+It gets smarter over time: As you give thumbs up/down, the "Pattern Library" grows.
+Zero-latency adaptation: If a specific complex JOIN is hard for the LLM traditionally, once it gets it right once, it will use that "recipe" for all future similar requests.
