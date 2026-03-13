@@ -156,6 +156,8 @@ def router_node(state: AgentState) -> dict:
             decision = "raid_update_agent"
         elif "risk" in q or "raid" in q or "mitigation" in q or "issue" in q:
             decision = "risk_agent"
+        elif any(k in q for k in ["email", "send to", "mail", "recipient"]):
+            decision = "email_agent"
         elif "plan" in q or "forecast" in q or "hours" in q:
             decision = "plan-forecast_agent"
         elif "contract" in q or "sow" in q or "agreement" in q:

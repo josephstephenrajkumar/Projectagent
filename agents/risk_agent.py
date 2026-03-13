@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
 from orchestrator.llm_factory import get_llm
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from tools.retrieval import similarity_search
 
 load_dotenv()
@@ -22,12 +22,14 @@ load_dotenv()
 llm = get_llm()
 
 # Prompt to extract the ID from the query
-EXTRACTION_PROMPT = """You are an AI assistant that extracts project identifiers from text.
-The user wants risk analysis or RAID log information.
-Extract either the Project Number, Opportunity ID, or SOW ID mentioned in the query.
-If multiple are found, return the most obvious one.
-Return ONLY the raw identifier string, with no extra text, markdown, or punctuation.
-If no clear identifier is found, return exactly: NONE"""
+EXTRACTION_PROMPT = """You are an AI assistant that extracts project identifiers (Project Number, Opportunity ID, or SOW ID).
+
+Analyze the conversation history and the current user query.
+1. If the current query contains an identifier (e.g., '202021'), return it.
+2. If the current query does NOT have an identifier, look at the RECENT conversation history for the most recently discussed project code.
+3. Return ONLY the raw identifier string (e.g., '202021').
+4. No extra text, markdown, or punctuation.
+5. If no identifier is found in query or context, return: NONE"""
 
 # Risk RAG Prompt requested by user
 def _get_risk_prompt() -> str:
@@ -82,12 +84,22 @@ Format your response using the following Markdown structure EXACTLY:
 """
 
 
-def _extract_identifier(query: str) -> str:
+def _extract_identifier(query: str, history: list = None) -> str:
     try:
-        response = llm.invoke([
-            SystemMessage(content=EXTRACTION_PROMPT),
-            HumanMessage(content=query)
-        ])
+        messages = [SystemMessage(content=EXTRACTION_PROMPT)]
+        if history:
+            # Add last 4 turns for context
+            for msg in history[-4:]:
+                role = msg.get("role")
+                content = msg.get("content")
+                if role == "user":
+                    messages.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=content))
+        
+        messages.append(HumanMessage(content=f"Current Query: {query}"))
+        
+        response = llm.invoke(messages)
         result = response.content.strip()
         if result == "NONE" or not result:
             return ""
@@ -96,10 +108,18 @@ def _extract_identifier(query: str) -> str:
         return ""
 
 
-def _build_db_markdown(project: dict, wps: list, raids: list, identifier: str) -> str:
+def _build_db_markdown(project: dict, wps: list, raids: list, identifier: str, query: str = "") -> str:
     """Builds the requested markdown format using data from SQLite tables."""
     
     project_number = project.get("ProjectNumber", identifier)
+    query_lower = query.lower()
+    
+    # Identify if user asked for specific priorities
+    only_high = "high" in query_lower and "summary" not in query_lower
+    only_med = "medium" in query_lower
+    only_low = "low" in query_lower
+    has_specific_request = only_high or only_med or only_low
+
     # Basic metrics
     baseline_risk_count = len(wps)
     live_risk_count = sum(1 for r in raids if str(r.get("Type", "")).lower() == "risk")
@@ -111,76 +131,77 @@ def _build_db_markdown(project: dict, wps: list, raids: list, identifier: str) -
     med_count = sum(1 for r in raids if str(r.get("Status", "")).lower() in ["medium", "in-progress"])
     low_count = sum(1 for r in raids if str(r.get("Status", "")).lower() in ["low", "closed", "resolved"])
 
-    md = f"# ⚠️ Contract Risk Analysis\n\n"
-    md += f"**Document ID:** `{project_number}`\n\n"
+    md = f"# ⚠️ Risk Analysis: {project_number}\n\n"
     
-    md += f"## 🎯 Risk Assessment Summary\n"
-    if total_items == 0:
-        md += "No baseline risks or operational RAID items have been formally recorded for this project yet.\n\n"
-    else:
-        md += f"This project currently tracks **{live_risk_count} live risks** and **{issue_count} live issues** in its operational RAID log. "
-        md += f"Additionally, there are **{baseline_risk_count} baseline risks** established across the work packages identified in the SOW.\n\n"
+    if not has_specific_request:
+        md += f"## 🎯 Risk Assessment Summary\n"
+        if total_items == 0:
+            md += "No baseline risks or operational RAID items recorded.\n\n"
+        else:
+            md += f"Operational: **{live_risk_count} live risks**, **{issue_count} live issues**. "
+            md += f"SOW Baseline: **{baseline_risk_count} risks** identified.\n\n"
 
-    md += f"## 📋 Identified Risks\n\n"
+    md += f"## 📋 Operational RAID Items\n"
+    md += "> [!NOTE]\n"
+    md += "> These items are project-level risks/issues and apply across all phases. They are not specific to individual Work Packages.\n\n"
 
-    # Separate RAID items into basic buckets based on status/type heuristic
+    # Separate RAID items
     high_raids = [r for r in raids if str(r.get("Status", "")).lower() in ["open", "critical", "high"]]
     med_raids = [r for r in raids if str(r.get("Status", "")).lower() not in ["open", "critical", "high", "closed", "resolved", "low"]]
     low_raids = [r for r in raids if str(r.get("Status", "")).lower() in ["closed", "resolved", "low"]]
 
-    # HELPER for displaying table rows
     def _raid_table(raid_list, impact_label):
         if not raid_list:
-            return f"| None | No {impact_label} items recorded | {impact_label} | N/A | N/A | N/A | N/A |\n"
-        tbl = ""
+            return ""
+        tbl = f"| Category | Description | Owner | Due Date | Status | Mitigation |\n"
+        tbl += f"|----------|-------------|-------|----------|--------|------------|\n"
         for r in raid_list:
             cat = r.get("Category") or r.get("Type") or "General"
             desc = (r.get("Description") or "").replace("\n", " ").strip()
             owner = r.get("owner", "Unassigned")
             due_date = r.get("DueDate", "No Date")
             mit_action = r.get("MitigatingAction") or r.get("ROAM") or "No mitigation stated"
-            
-            # Format row
-            tbl += f"| {cat} | {desc} | {impact_label} | {owner} | {due_date} | {r.get('Status','Unknown')} | {mit_action} |\n"
+            tbl += f"| {cat} | {desc} | {owner} | {due_date} | {r.get('Status','Unknown')} | {mit_action} |\n"
         return tbl
-        
-    md += f"### 🔴 High Risk & Operational Items\n"
-    md += f"| Type/Category | Description | Impact | Owner | Due Date | Status | Mitigating Actions (ROAM) |\n"
-    md += f"|---------------|-------------|--------|-------|----------|--------|----------------------------|\n"
-    md += _raid_table(high_raids, "High")
-    md += "\n"
-    
-    md += f"### 🟡 Medium Risk & Operational Items\n"
-    md += f"| Type/Category | Description | Impact | Owner | Due Date | Status | Mitigating Actions (ROAM) |\n"
-    md += f"|---------------|-------------|--------|-------|----------|--------|----------------------------|\n"
-    md += _raid_table(med_raids, "Medium")
-    md += "\n"
-    
-    md += f"### 🟢 Low / Closed Items\n"
-    md += f"| Type/Category | Description | Impact | Owner | Due Date | Status | Mitigating Actions (ROAM) |\n"
-    md += f"|---------------|-------------|--------|-------|----------|--------|----------------------------|\n"
-    md += _raid_table(low_raids, "Low")
-    md += "\n"
 
-    md += f"## 🛡️ Baseline SOW Work Package Risks\n"
-    if wps:
-        for idx, wp in enumerate(wps):
-            phase = wp.get("phase_name", f"Phase {idx+1}")
-            r_and_m = wp.get("risks_mitigations", "None documented")
-            md += f"{idx+1}. **[{phase}]**: {r_and_m}\n"
-    else:
-        md += "- No specific work package baseline risks found.\n"
-    md += "\n"
+    # High Priority Section
+    if not has_specific_request or only_high:
+        h_table = _raid_table(high_raids, "High")
+        if h_table:
+            md += f"### 🔴 High Priority\n{h_table}\n"
+        elif only_high:
+            md += "### 🔴 High Priority\nNo high priority items recorded.\n\n"
 
-    md += f"## 📊 Risk Matrix Summary\n"
-    md += f"- **Total LIVE RAID Items Recorded:** {len(raids)}\n"
-    md += f"- **High Priority (Open/Critical):** {high_count}\n"
-    md += f"- **Medium Priority (In Progress):** {med_count}\n"
-    md += f"- **Low / Resolved Priority:** {low_count}\n"
-    md += f"- **SOW Baseline Risk Checkpoints:** {baseline_risk_count}\n\n"
+    # Medium Priority Section
+    if not has_specific_request or only_med:
+        m_table = _raid_table(med_raids, "Medium")
+        if m_table:
+            md += f"### 🟡 Medium Priority\n{m_table}\n"
+        elif only_med:
+            md += "### 🟡 Medium Priority\nNo medium priority items recorded.\n\n"
 
-    md += f"---\n*Risk analysis completed for project: {project_number} (via SQLite Database)*\n"
-    
+    # Low Priority Section
+    if not has_specific_request or only_low:
+        l_table = _raid_table(low_raids, "Low")
+        if l_table:
+            md += f"### 🟢 Low / Resolved Items\n{l_table}\n"
+        elif only_low:
+            md += "### 🟢 Low Priority\nNo low priority items recorded.\n\n"
+
+    # Baseline Section
+    if not has_specific_request:
+        md += f"## 🛡️ SOW Baseline Risks (Phase-Specific)\n"
+        if wps:
+            for idx, wp in enumerate(wps):
+                phase = wp.get("phase_name", f"Phase {idx+1}")
+                r_and_m = wp.get("risks_mitigations", "None documented")
+                if r_and_m and r_and_m.lower() != "none":
+                    md += f"{idx+1}. **[{phase}]**: {r_and_m}\n"
+        else:
+            md += "- No baseline risks found.\n"
+        md += "\n"
+
+    md += f"---\n*Retrieved for project: {project_number}*"
     return md
 
 
@@ -188,8 +209,9 @@ def risk_agent_node(state: dict) -> dict:
     query = state.get("query", "")
     debug = state.get("debug_log", "")
     
-    # 1. Extract identifier
-    identifier = _extract_identifier(query)
+    # 1. Extract identifier (using history for context)
+    history = state.get("history", [])
+    identifier = _extract_identifier(query, history)
     
     if not identifier:
         debug += "\n⚠️ Risk Agent: Could not find a clear Project or SOW ID in request. Falling back to semantic search."
@@ -231,7 +253,7 @@ def risk_agent_node(state: dict) -> dict:
                     conn.close()
                     
                     debug += f"\n✅ Risk Agent: Project found in SQLite database. Compiling structured risk report."
-                    md_text = _build_db_markdown(dict(proj_row), wp_rows, raid_rows, identifier)
+                    md_text = _build_db_markdown(dict(proj_row), wp_rows, raid_rows, identifier, query)
                     return {
                         "response": md_text,
                         "debug_log": debug
@@ -245,18 +267,15 @@ def risk_agent_node(state: dict) -> dict:
     debug += f"\n⚠️ Risk Agent: '{identifier}' not found in SQLite. Falling back to Vector DB (contract_collection) RAG search."
     
     try:
-        from runtime.api.embeddings import get_embeddings
-        embed_model = get_embeddings()
-        docs = similarity_search(query, "contract_collection", embed_model, k=4)
+        context_str = similarity_search("contract_collection", query, k=4)
         
-        if not docs:
+        if not context_str:
             debug += "\n❌ Risk Agent: No relevant context found in ChromaDB either."
             return {
                 "response": f"I couldn't find risk analysis information for {identifier} in the database or the uploaded contracts. Please ensure the project is created or the SOW is uploaded.",
                 "debug_log": debug
             }
             
-        context_str = "\n\n".join([doc.page_content for doc in docs])
         
         rag_prompt = _get_risk_prompt().format(
             document_text=context_str,

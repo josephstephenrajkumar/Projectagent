@@ -70,6 +70,9 @@ def delete_project_agent_node(state: dict) -> dict:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
+        # MUST enable foreign keys for ON DELETE CASCADE to trigger
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        
         cursor.execute(
             "SELECT project_id FROM Project WHERE ProjectNumber = ? OR OpportunityID = ?",
             (identifier, identifier)
@@ -87,19 +90,16 @@ def delete_project_agent_node(state: dict) -> dict:
         deleted_count = 0
         for row in rows:
             pid = row[0]
-            # Delete child tables
-            cursor.execute("DELETE FROM ProjectWorkPackage WHERE project_id = ?", (pid,))
-            cursor.execute("DELETE FROM ProjectWeeklySummary WHERE project_id = ?", (pid,))
-            # Delete main project
+            # Delete main project; CASCADE handles the child tables
             cursor.execute("DELETE FROM Project WHERE project_id = ?", (pid,))
             deleted_count += 1
             
         conn.commit()
         conn.close()
         
-        debug += f"\n✅ Delete Agent: Deleted {deleted_count} project(s) matching '{identifier}'."
+        debug += f"\n✅ Delete Agent: Deleted {deleted_count} project(s) matching '{identifier}' (and all cascaded child records)."
         return {
-            "response": f"✅ Successfully deleted project '{identifier}' and all its associated work packages.",
+            "response": f"✅ Successfully deleted project '{identifier}' and all its associated data (work packages, RAID logs, etc).",
             "debug_log": debug
         }
         

@@ -80,7 +80,15 @@ def create_database():
         risks_mitigations TEXT,
         deliverables TEXT,
         acceptance_criteria TEXT,
-        FOREIGN KEY(project_id) REFERENCES Project(project_id)
+        overview TEXT,
+        engagement_summary TEXT,
+        scope TEXT,
+        tech_landscape TEXT,
+        key_deliverables TEXT,
+        missing_items TEXT,
+        next_steps TEXT,
+        quick_summary TEXT,
+        FOREIGN KEY(project_id) REFERENCES Project(project_id) ON DELETE CASCADE
     );
     """)
 
@@ -107,7 +115,7 @@ def create_database():
         ETC_Cost INTEGER,
         EAC_Revenue INTEGER,
         EAC_Cost INTEGER,
-        FOREIGN KEY(project_id) REFERENCES Project(project_id)
+        FOREIGN KEY(project_id) REFERENCES Project(project_id) ON DELETE CASCADE
     );
     """)
 
@@ -129,7 +137,7 @@ def create_database():
         Status VARCHAR(25),
         Statusdate DATETIME,
         Status_summary TEXT,
-        FOREIGN KEY(project_id) REFERENCES Project(project_id)
+        FOREIGN KEY(project_id) REFERENCES Project(project_id) ON DELETE CASCADE
     );
     """)
 
@@ -144,7 +152,7 @@ def create_database():
         ForecastDateMonth DATETIME,
         ForecastAmount FLOAT,
         Status VARCHAR(25),
-        FOREIGN KEY(project_id) REFERENCES Project(project_id)
+        FOREIGN KEY(project_id) REFERENCES Project(project_id) ON DELETE CASCADE
     );
     """)
 

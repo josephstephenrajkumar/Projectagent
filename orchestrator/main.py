@@ -12,6 +12,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,15 +46,33 @@ class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = "default"
 
-# ── In-memory Session Store ────────────────────────────────────────────────
-# session_id -> List[dict] (history)
-SESSION_STORE: dict[str, List[dict]] = {}
+# ── Persistent Session Store ────────────────────────────────────────────────
+SESSION_FILE = os.path.join(PROJECT_ROOT, "data", "sessions.json")
 
+def _load_sessions() -> dict[str, List[dict]]:
+    if not os.path.exists(SESSION_FILE):
+        return {}
+    try:
+        with open(SESSION_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_sessions(sessions: dict[str, List[dict]]):
+    try:
+        with open(SESSION_FILE, "w") as f:
+            json.dump(sessions, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to save sessions: {e}")
+
+# session_id -> List[dict] (history)
+SESSION_STORE = _load_sessions()
 
 class ChatResponse(BaseModel):
     response: str
     debug_log: str
     agent: str  # which agent(s) handled this
+
 
 
 # ── Health ─────────────────────────────────────────────────────────────────
@@ -73,12 +92,32 @@ def chat(req: ChatRequest):
     session_id = req.session_id or "default"
     history = SESSION_STORE.get(session_id, [])
 
+    # ── History Sanity Anchor ─────────────────────────────────────────────
+    # Fetch live project list to override stale conversation history
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = db_path if os.path.isabs(db_path) else os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    project_fact_check = "FACT CHECK: The following projects are CURRENTLY ACTIVE in the system:\n"
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_abs)
+        cursor = conn.cursor()
+        cursor.execute("SELECT ProjectNumber, customer FROM Project")
+        projects = cursor.fetchall()
+        for p_num, cust in projects:
+            project_fact_check += f"- Project {p_num} (Customer: {cust}) is ACTIVE and AVAILABLE.\n"
+        conn.close()
+    except Exception:
+        project_fact_check += "- (Unable to reach database for fact check)\n"
+    
+    # Prepend this anchor to the history for this invocation (don't save it to session)
+    augmented_history = [{"role": "system", "content": project_fact_check}] + history
+
     initial_state = {
         "query": req.query,
         "response": "",
         "next_node": "",
         "agent_outputs": [],
-        "history": history,
+        "history": augmented_history,
         "debug_log": "",
     }
 
@@ -95,6 +134,7 @@ def chat(req: ChatRequest):
     ]
     # Keep history at reasonable length
     SESSION_STORE[session_id] = updated_history[-20:]
+    _save_sessions(SESSION_STORE)
 
     debug = result.get("debug_log", "")
     agent_tag = "general_agent"
@@ -108,6 +148,44 @@ def chat(req: ChatRequest):
         debug_log=debug,
         agent=agent_tag,
     )
+
+
+class FeedbackRequest(BaseModel):
+    user_query: str
+    generated_sql: str
+    score: int  # +1 for helpful, -1 for unhelpful
+
+@server.post("/chat/feedback")
+def submit_feedback(req: FeedbackRequest):
+    """Store successful/failed SQL queries in the QueryFeedback table."""
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = db_path if os.path.isabs(db_path) else os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    
+    import sqlite3
+    import uuid
+    from datetime import datetime
+    try:
+        conn = sqlite3.connect(db_abs)
+        # Check if this exact SQL already exists
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM QueryFeedback WHERE generated_sql = ?", (req.generated_sql,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            cursor.execute(
+                "UPDATE QueryFeedback SET feedback_score = feedback_score + ?, last_used = ? WHERE id = ?",
+                (req.score, datetime.utcnow().isoformat(), existing[0])
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO QueryFeedback (id, user_query, generated_sql, feedback_score, last_used) VALUES (?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), req.user_query, req.generated_sql, req.score, datetime.utcnow().isoformat())
+            )
+        conn.commit()
+        conn.close()
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Document ingestion ────────────────────────────────────────────────────
@@ -168,6 +246,9 @@ async def create_project(
     safe_code = project_code.replace(" ", "_").replace("-", "_").lower()
     project_dir = os.path.join(PROJECTS_DIR, safe_code)
     os.makedirs(project_dir, exist_ok=True)
+    
+    with open(os.path.join(project_dir, "status.txt"), "w") as f:
+        f.write("Initializing Project Extraction...")
 
     saved_files = []
     uploads = [contract_file, estimation_file]
@@ -219,6 +300,17 @@ async def create_project(
         "extracted_data": extracted,
         "debug_log": result.get("debug_log", ""),
     }
+
+
+@server.get("/project/status/{project_code}")
+def get_project_status(project_code: str):
+    """Return live extraction status for a running project creation task."""
+    safe_code = project_code.replace(" ", "_").replace("-", "_").lower()
+    status_file = os.path.join(PROJECTS_DIR, safe_code, "status.txt")
+    if os.path.exists(status_file):
+        with open(status_file, "r") as f:
+            return {"status": f.read().strip()}
+    return {"status": "Initializing..."}
 
 
 # ── Project Creation: Phase B (confirm → persist) ────────────────────────
@@ -306,6 +398,92 @@ def get_raid_alerts():
     except Exception as e:
         print(f"Error fetching RAID alerts: {e}")
         return {"alerts": []}
+
+
+# ── Database Management Endpoints ──────────────────────────────────────────
+
+@server.get("/db/tables")
+def get_db_tables():
+    """Returns a list of all tables in the database."""
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    if not os.path.exists(db_abs):
+        raise HTTPException(status_code=404, detail="Database file not found.")
+    
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_abs)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+        tables = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return {"tables": tables}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@server.get("/db/table/{table_name}")
+def get_table_data(table_name: str):
+    """Returns columns and rows for a specific table."""
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_abs)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Validate table name safely
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Table not found.")
+            
+        cursor.execute(f"SELECT * FROM {table_name}")
+        rows = cursor.fetchall()
+        
+        # Get column names
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        conn.close()
+        return {
+            "columns": columns,
+            "rows": [dict(r) for r in rows]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DBUpdateRequest(BaseModel):
+    table_name: str
+    pk_column: str
+    pk_value: str
+    updates: dict
+
+
+@server.post("/db/update")
+def update_table_data(req: DBUpdateRequest):
+    """Update a row in the database."""
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_abs)
+        cursor = conn.cursor()
+        
+        set_clause = ", ".join([f"{col} = ?" for col in req.updates.keys()])
+        values = list(req.updates.values()) + [req.pk_value]
+        
+        query = f"UPDATE {req.table_name} SET {set_clause} WHERE {req.pk_column} = ?"
+        cursor.execute(query, values)
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "Row updated successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

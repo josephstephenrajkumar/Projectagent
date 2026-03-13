@@ -1,71 +1,46 @@
-#!/usr/bin/env bash
-# start.sh – Quick launcher for the OpenClaw Multi-Agent System
-# Usage: ./start.sh
-set -e
+#!/bin/bash
+# OpenClaw Startup Script
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-
-echo ""
-echo "╔══════════════════════════════════════════════════╗"
-echo "║        OpenClaw Multi-Agent System v2            ║"
-echo "╚══════════════════════════════════════════════════╝"
-echo ""
-
-# ── Check .env ────────────────────────────────────────────────────────────
-if [ ! -f "$ROOT/.env" ]; then
-  echo "⚠️  .env not found – copying from .env.example"
-  cp "$ROOT/.env.example" "$ROOT/.env"
-fi
-
-# ── Check Groq API key ────────────────────────────────────────────────────
-GROQ_KEY=$(grep GROQ_API_KEY "$ROOT/.env" | cut -d= -f2 | tr -d '"')
-if [ -z "$GROQ_KEY" ]; then
-  echo "❌  GROQ_API_KEY is not set in .env — please add it and re-run."
+# 1. Load Environment Variables
+if [ -f .env ]; then
+  source .env
+else
+  echo "❌ .env file missing."
   exit 1
 fi
-echo "🤖 LLM: Groq → openai/gpt-oss-120b"
 
-# ── Node deps ─────────────────────────────────────────────────────────────
-if [ ! -d "$ROOT/runtime/node_modules" ]; then
-  echo "📦 Installing Node.js dependencies…"
-  cd "$ROOT/runtime" && npm install && cd "$ROOT"
+if [ -z "$GROQ_API_KEY" ] || [ "$GROQ_API_KEY" == "your-groq-api-key" ] || [ "$GROQ_API_KEY" == "" ]; then
+  echo "❌ GROQ_API_KEY is not set in .env — please add it and re-run."
+  exit 1
 fi
 
-# ── Start FastAPI Orchestrator ────────────────────────────────────────────
-echo ""
-echo "🐍 Starting Python Orchestrator (FastAPI) on port 8000…"
-cd "$ROOT/orchestrator"
-python main.py &
-PYTHON_PID=$!
-echo "   PID: $PYTHON_PID"
-sleep 2
+# 2. Check dependencies
+echo "�� Checking Python dependencies..."
+pip install -q -r requirements.txt
+echo "📦 Checking Node.js dependencies..."
+cd runtime && npm install --silent && cd ..
 
-# ── Start ACP Agent Server ────────────────────────────────────────────────
-echo "🤖 Starting ACP Agent Server on port 8100…"
-cd "$ROOT/agents"
-python acp_agent_server.py &
-ACP_PID=$!
-echo "   PID: $ACP_PID"
-sleep 2
+# 3. Create necessary directories
+echo "📁 Ensuring required directories exist..."
+mkdir -p data/chroma_db data/docs/projects ./logs
 
-# ── Start Node.js Gateway ─────────────────────────────────────────────────
-echo "⚙️  Starting OpenClaw Gateway (Node.js) on port 3000…"
-cd "$ROOT/runtime"
-node gateway/server.js &
-NODE_PID=$!
-echo "   PID: $NODE_PID"
-sleep 1
+# 4. Initialize SQLite DB
+echo "🗄️  Initializing SQLite database..."
+python3 tools/init_sqlite_db.py
 
-echo ""
-echo "✅ System running!"
-echo "   Chat UI      → http://localhost:3000"
-echo "   API docs     → http://localhost:8000/docs"
-echo "   ACP agents   → http://localhost:8100/agents"
-echo "   A2A card     → http://localhost:8100/.well-known/agent.json"
-echo ""
-echo "Press Ctrl+C to stop all services."
-echo ""
+# 5. Start Servers
+echo "🚀 Starting OpenClaw Orchestrator (Backend) and UI (Frontend)..."
 
-# ── Wait & cleanup ────────────────────────────────────────────────────────
-trap "echo ''; echo 'Shutting down…'; kill $PYTHON_PID $ACP_PID $NODE_PID 2>/dev/null; exit 0" INT TERM
-wait $PYTHON_PID $ACP_PID $NODE_PID
+# Use concurrently to run both and stream logs
+if ! command -v concurrently &> /dev/null
+then
+    echo "⚙️ Installing concurrently..."
+    npm install -g concurrently
+fi
+
+concurrently \
+    --names "ORCH,UI  " \
+    --prefix-colors "blue,green" \
+    --kill-others \
+    "python3 -m uvicorn orchestrator.main:server --host 0.0.0.0 --port 8000" \
+    "cd ui && npx serve -p 3000"

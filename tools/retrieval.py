@@ -36,8 +36,8 @@ def _get_embeddings():
     return _embeddings
 
 
-def get_retriever(collection_name: str, k: int = 3):
-    """Return a LangChain retriever for the given ChromaDB collection."""
+def get_retriever(collection_name: str, k: int = 3, where: dict | None = None):
+    """Return a LangChain retriever for the given ChromaDB collection, optionally with metadata filters."""
     from langchain_chroma import Chroma
 
     db = Chroma(
@@ -45,13 +45,19 @@ def get_retriever(collection_name: str, k: int = 3):
         collection_name=collection_name,
         embedding_function=_get_embeddings(),
     )
-    return db.as_retriever(search_kwargs={"k": k})
+    
+    search_kwargs = {"k": k}
+    if where:
+        # e.g., where={"project_code": "BOSTON-001"}
+        search_kwargs["filter"] = where
+        
+    return db.as_retriever(search_kwargs=search_kwargs)
 
 
-def similarity_search(collection_name: str, query: str, k: int = 3) -> str:
-    """Convenience wrapper: returns raw context string for RAG agents."""
+def similarity_search(collection_name: str, query: str, k: int = 3, where: dict | None = None) -> str:
+    """Convenience wrapper: returns raw context string for RAG agents, optionally filtered by metadata."""
     try:
-        retriever = get_retriever(collection_name, k=k)
+        retriever = get_retriever(collection_name, k=k, where=where)
         docs = retriever.invoke(query)
         return "\n\n".join(d.page_content for d in docs)
     except Exception as exc:

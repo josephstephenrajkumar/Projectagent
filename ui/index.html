@@ -65,6 +65,7 @@
       <p class="legend-title">Navigation</p>
       <button id="nav-chat" class="btn-secondary nav-active">💬 Chat</button>
       <button id="nav-create" class="btn-secondary">📁 Create Project</button>
+      <button id="nav-data" class="btn-secondary">📊 Data Manager</button>
     </div>
 
     <div class="stack-info">
@@ -211,6 +212,30 @@
     </div>
   </section>
 
+  <!-- ─── Data Manager Panel ─────────────────────────────────────────── -->
+  <section id="data-panel" class="hidden-panel">
+    <header id="topbar-data">
+      <button id="btn-menu-data" aria-label="Toggle sidebar">☰</button>
+      <h1>📊 SQL Data Manager</h1>
+    </header>
+
+    <div id="data-content">
+      <div class="data-controls">
+        <select id="sel-table" class="inp-select">
+          <option value="">Select Table...</option>
+        </select>
+        <button id="btn-refresh-data" class="btn-ghost">🔄 Refresh</button>
+        <div class="data-search">
+          <input type="text" id="inp-data-search" placeholder="Search in table..." />
+        </div>
+      </div>
+
+      <div id="data-table-wrapper">
+        <p class="data-placeholder">Select a table to view and edit records.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ─── Thinking process drawer ──────────────────────────────────────── -->
   <div id="thinking-drawer" class="drawer hidden">
     <div class="drawer-header">
@@ -222,7 +247,7 @@
 
   <div id="overlay" class="hidden"></div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
 </body>
 
 </html>

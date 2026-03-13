@@ -1,7 +1,6 @@
 """
 Agent Mesh – Plan-Forecast Agent
-Answers questions about project planning, resource allocation,
-hours estimates, and cost forecasts.
+Answers questions about project hours, milestones, estimations, and forecasting.
 """
 import sys
 import os
@@ -12,105 +11,79 @@ from orchestrator.state import AgentState
 from orchestrator.llm_factory import get_llm
 from tools.retrieval import similarity_search
 from langchain_core.messages import SystemMessage, HumanMessage
-import sqlite3
 
 llm = get_llm()
 
-COLLECTION = "plan-forecast_collection"
-AGENT_NAME = "Plan-Forecast Agent"
-PERSONA = "Programme Specialist – expert in project planning and resource forecasting"
+# Dynamically search estimation collections
+AGENT_NAME = "Plan & Forecast Agent"
+PERSONA = "Delivery Manager – expert in forecasts. CRITICAL: You must prioritize the 'Context' provided below over any past conversation history. Project 202021 is ACTIVE; if you see data for it, it exists."
 
+def _extract_project_code_for_filter(query: str, history: list) -> str:
+    from langchain_core.messages import SystemMessage, HumanMessage
+    prompt = "Extract the Project Code (e.g. BOSTON-001) from the query or history if present. Return ONLY the code, or NONE."
+    try:
+        combined = query + " ".join([m.get("content", "") for m in history])
+        res = llm.invoke([SystemMessage(content=prompt), HumanMessage(content=combined)])
+        val = res.content.strip()
+        return "" if val == "NONE" else val
+    except:
+        return ""
 
 def forecast_agent_node(state: AgentState) -> dict:
     query = state["query"]
     history = state.get("history", [])
     current_outputs = state.get("agent_outputs", [])
     debug = state.get("debug_log", "")
-
-    db_context = ""
-    try:
-        db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
-        if not os.path.isabs(db_path):
-            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            db_path = os.path.abspath(os.path.join(project_root, db_path))
-            
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Simple keyword match to find related projects
-            cursor.execute("""
-                SELECT p.ProjectNumber, p.customer, w.overview, w.engagement_summary, w.scope, w.tech_landscape, w.key_deliverables, w.missing_items, w.next_steps, w.quick_summary
-                FROM Project p
-                JOIN ProjectWorkPackage w ON p.project_id = w.project_id
-            """)
-            rows = cursor.fetchall()
-            db_matched_content = ""
-            for r in rows:
-                pnum = str(r["ProjectNumber"] or "").lower()
-                pcust = str(r["customer"] or "").lower()
-                
-                # Search in current query AND history for context
-                combined_q = (query + " " + " ".join([m["content"] for m in history])).lower()
-                
-                # If the query/history mentions the project number or customer name, inject the WP fields!
-                if (pnum and pnum in combined_q) or (pcust and pcust in combined_q) or any(word in combined_q for word in pcust.split() if len(word) > 3):
-                    md = f"📊 **Project:** {r['ProjectNumber']} ({r['customer']})\n\n"
-                    
-                    if r['overview']: md += f"## 1. Project Overview\n{r['overview']}\n\n"
-                    if r['engagement_summary']: md += f"## 2. Engagement Summary\n{r['engagement_summary']}\n\n"
-                    if r['scope']: md += f"## 3. Scope & Work Packages\n{r['scope']}\n\n"
-                    if r['tech_landscape']: md += f"## 4. Technical Landscape\n{r['tech_landscape']}\n\n"
-                    if r['key_deliverables']: md += f"## 5. Key Deliverables\n{r['key_deliverables']}\n\n"
-                    if r['missing_items']: md += f"## 6. Missing / Open Items\n{r['missing_items']}\n\n"
-                    if r['next_steps']: md += f"## 7. Next Steps\n{r['next_steps']}\n\n"
-                    if r['quick_summary']: md += f"### Quick Reference Summary\n{r['quick_summary']}\n\n"
-                    
-                    db_matched_content += md
-                    
-            conn.close()
-            
-            # If we found a direct DB match for the project details, return it immediately!
-            if db_matched_content:
-                report = f"--- {AGENT_NAME} Report (from Database) ---\n{db_matched_content}\n"
-                return {
-                    "agent_outputs": current_outputs + [report],
-                    "debug_log": debug + f"\n✅ {AGENT_NAME}: answered directly from Database Work Packages.",
-                }
-    except Exception as e:
-        debug += f"\n⚠️ Forecast Agent DB extraction error: {e}"
-
-    context = similarity_search(COLLECTION, query, k=3)
+    
+    # 1. Try to find a target project to filter RAG
+    target_project = _extract_project_code_for_filter(query, history)
+    where_filter = {"project_code": target_project} if target_project else None
+    
+    context = ""
+    
+    if target_project:
+        debug += f"\n🔍 {AGENT_NAME}: Filtering RAG search for project '{target_project}'"
+        safe_code = target_project.replace(" ", "_").replace("-", "_").lower()
+        target_collection = f"{safe_code}_estimation_milestone_collection"
+        context = similarity_search(target_collection, query, k=5, where=where_filter)
+    else:
+        from tools.retrieval import list_collections
+        all_cols = list_collections()
+        target_cols = [c for c in all_cols if "estimation_milestone_collection" in c]
+        for c in target_cols:
+            c_ctx = similarity_search(c, query, k=2)
+            if c_ctx:
+                context += f"\n--- From {c} ---\n{c_ctx}"
     
     if not context.strip():
-        msg = f"❌ {AGENT_NAME}: No relevant context found in planning documents or structured database."
+        msg = f"❌ {AGENT_NAME}: No relevant estimation context found. Please specify a Project Code."
         return {
             "agent_outputs": current_outputs + [msg],
-            "debug_log": debug + f"\n❌ {AGENT_NAME}: no context.",
+            "debug_log": debug + f"\n❌ {AGENT_NAME}: no context found.",
         }
 
     system_prompt = (
         f"You are the {PERSONA}.\n"
         "Answer the user query using ONLY the Context below. "
-        "If the answer is not in the context, say you don't know — "
-        "never invent figures.\n\n"
+        "If the answer is not in the context, say you don't know.\n\n"
         f"Context:\n{context}"
     )
 
     messages = [SystemMessage(content=system_prompt)]
     for msg in history:
+        from langchain_core.messages import AIMessage
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         else:
-            from langchain_core.messages import AIMessage
             messages.append(AIMessage(content=msg["content"]))
+            
     messages.append(HumanMessage(content=query))
-
     response = llm.invoke(messages)
 
-    report = f"--- {AGENT_NAME} Report ---\n{response.content}\n"
+    report_source = f" (Filtered to {target_project})" if target_project else " (Across all estimations)"
+    report = f"--- 📊 {AGENT_NAME} Report{report_source} ---\n{response.content}\n"
+    
     return {
         "agent_outputs": current_outputs + [report],
-        "debug_log": debug + f"\n✅ {AGENT_NAME}: answered from {COLLECTION}.",
+        "debug_log": debug + f"\n✅ {AGENT_NAME}: answered using RAG metadata filtering.",
     }

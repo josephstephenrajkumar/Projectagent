@@ -119,12 +119,18 @@ def ingestion_agent_node(state: dict) -> dict:
         ext = os.path.splitext(fpath)[1].lower()
         name_lower = basename.lower()
 
-        if "estimat" in name_lower or "milestone" in name_lower or ext == ".xlsx":
+        if "erp" in name_lower or "project" in name_lower:
+            col_name = f"{safe_code}_project_collection"
+            chunk_metadata["doc_type"] = "project"
+        elif "estimat" in name_lower or "milestone" in name_lower:
             col_name = f"{safe_code}_estimation_milestone_collection"
             chunk_metadata["doc_type"] = "estimation-milestone"
-        elif "contract" in name_lower or "sow" in name_lower or ext == ".docx":
+        elif "contract" in name_lower or "sow" in name_lower or ext in [".docx", ".doc", ".pdf"]:
             col_name = f"{safe_code}_contract_collection"
             chunk_metadata["doc_type"] = "contract"
+        elif ext in [".xlsx", ".xls"]: # Fallback for unknown excel
+            col_name = f"{safe_code}_estimation_milestone_collection"
+            chunk_metadata["doc_type"] = "estimation-milestone"
         else:
             col_name = f"{safe_code}_{basename.replace(' ', '_').lower()}_collection"
             chunk_metadata["doc_type"] = "other"

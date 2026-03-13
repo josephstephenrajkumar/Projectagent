@@ -80,51 +80,60 @@ Required JSON fields:
 Return ONLY the JSON object. No markdown fences, no explanation, no extra text."""
 
 
-# ── Work Package scope extraction prompt ─────────────────────────────────────
-WORK_PACKAGE_PROMPT = """You are an expert contract analyst. From the SOW/contract context below,
-identify every distinct phase or work package (e.g. WP001 Design, WP002 Deployment, WP003 Pilot, etc.).
+# ── Work Package scope extraction prompts ─────────────────────────────────────
+WP_DISCOVERY_PROMPT = """You are an expert contract analyst. From the SOW/contract context below,
+identify every distinct work package or phase listing (e.g. "Work Package #1", "Work Package #2", etc.).
+You must be EXHAUSTIVE. Appendix A often contains the full list from #1 to #11.
+Scan the entire context carefully and list EVERY single unique work package number you find.
 
-For EACH phase, extract these 7 fields. Be very concise — use short bullet points.
+CRITICAL INSTRUCTION: Identify phases by their "Work Package #X" label. If multiple sections describe the same Work Package #, list it exactly once with its most complete name. Do not miss any numbers in the sequence (check for 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11).
 
-Return a JSON array of objects:
+Return ONLY a JSON array of objects:
 [
   {{
-    "phase_name": "string – e.g. WP001 - Design Sign-off",
+    "phase_name": "string – e.g. Work Package #1 - Project kick-off",
     "phase_order": 1,
-    "prerequisites": "string – what must be ready before this phase starts",
-    "activities": "string – 6-10 short bullet points summarising the work",
-    "customer_responsibilities": "string – what the customer must provide/do",
-    "out_of_scope": "string – what is explicitly excluded",
-    "risks_mitigations": "string – key risks and their mitigations",
-    "deliverables": "string – deliverables and/or configuration items",
-    "acceptance_criteria": "string – criteria that must be met to complete this phase",
-    
-    "overview": "string – high-level Project Overview specific to this phase",
-    "engagement_summary": "string – goals and key activities summary",
-    "scope": "string – detailed scope elements and delivery model",
-    "tech_landscape": "string – existing technical environment/devices/workflows",
-    "key_deliverables": "string – numbered list of key deliverables",
-    "missing_items": "string – any gaps, open queries, or potential discrepancies",
-    "next_steps": "string – recommended immediate actions",
-    "quick_summary": "string – a concise 3-4 bullet point quick reference summary for this phase"
+    "wp_number": 1
   }}
 ]
-
-IMPORTANT:
-- Each field should be concise (max 3-5 lines per field)
-- Activities should have 6-10 short bullet points, each ≤15 words
-- Acceptance criteria define when the work package is DONE
 
 --- Contract Document Context ---
 {contract_context}
 
 Return ONLY the JSON array. No markdown fences, no explanation."""
 
+WP_DETAIL_PROMPT = """You are an expert contract analyst. Based on the following SOW context,
+extract the detailed scope for specifically this ONE phase: "{phase_name}"
+
+Return a single JSON object with these fields, keeping them extremely concise (1 sentence or 2 bullet points max):
+{{
+  "phase_name": "{phase_name}",
+  "phase_order": {phase_order},
+  "prerequisites": "string",
+  "activities": "string",
+  "customer_responsibilities": "string",
+  "out_of_scope": "string",
+  "risks_mitigations": "string",
+  "deliverables": "string",
+  "acceptance_criteria": "string",
+  "overview": "string",
+  "engagement_summary": "string",
+  "scope": "string",
+  "tech_landscape": "string",
+  "key_deliverables": "string",
+  "missing_items": "string",
+  "next_steps": "string",
+  "quick_summary": "string"
+}}
+
+--- Contract Document Context ---
+{contract_context}
+
+Return ONLY the JSON object. No markdown fences, no explanation."""
 
 def _extract_json_from_response(text: str) -> dict:
     """Robustly extract a JSON object from an LLM response."""
     cleaned = text.strip()
-    # Strip markdown fences
     if cleaned.startswith("```"):
         first_nl = cleaned.index("\n") if "\n" in cleaned else 3
         cleaned = cleaned[first_nl:]
@@ -132,12 +141,10 @@ def _extract_json_from_response(text: str) -> dict:
         cleaned = cleaned[:-3]
     cleaned = cleaned.strip()
 
-    # Find the JSON boundaries (object or array)
     obj_start = cleaned.find("{")
     arr_start = cleaned.find("[")
 
     if arr_start >= 0 and (obj_start < 0 or arr_start < obj_start):
-        # Array response
         end = cleaned.rfind("]")
         if end > arr_start:
             cleaned = cleaned[arr_start : end + 1]
@@ -149,12 +156,23 @@ def _extract_json_from_response(text: str) -> dict:
     return json.loads(cleaned)
 
 
+def update_status(project_code: str, msg: str):
+    import os
+    safe_code = project_code.replace(" ", "_").replace("-", "_").lower()
+    status_file = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "docs", "projects")), safe_code, "status.txt")
+    try:
+        os.makedirs(os.path.dirname(status_file), exist_ok=True)
+        with open(status_file, "w") as f:
+            f.write(msg)
+    except:
+        pass
+
 def data_extraction_agent_node(state: dict) -> dict:
     """
     Extract structured project data from:
       1. Excel file (direct parsing for dates, costs, resources, milestones)
       2. ChromaDB contract collection (LLM-based SOW extraction)
-      2b. Work package scope extraction (LLM-based)
+      2b. Work package scope extraction (LLM-based Two-Pass)
     Merges all into a combined extracted_data dict.
     """
     collection_names = state.get("collection_names", [])
@@ -164,7 +182,8 @@ def data_extraction_agent_node(state: dict) -> dict:
     opportunity_id = state.get("opportunity_id", "")
     debug = state.get("debug_log", "")
 
-    # ── Step 1: Parse Excel file directly ────────────────────────────────────
+    update_status(project_code, "Parsing uploaded Excel files...")
+
     excel_data = None
     xlsx_file = None
     for f in uploaded_files:
@@ -181,7 +200,6 @@ def data_extraction_agent_node(state: dict) -> dict:
     else:
         debug += "\n⚠️ No estimation Excel file found in uploaded files."
 
-    # ── Step 2: LLM-based SOW extraction from contract collection ────────────
     sow_extracted = {}
     contract_context = ""
 
@@ -219,26 +237,82 @@ def data_extraction_agent_node(state: dict) -> dict:
     else:
         debug += "\n⚠️ No collections available for SOW extraction."
 
-    # ── Step 2b: Work Package scope extraction ───────────────────────────────
+    # ── Step 2b: Work Package scope extraction (TWO-PASS) ────────────────────
     work_packages = []
-    if contract_context.strip():
-        wp_prompt = WORK_PACKAGE_PROMPT.format(contract_context=contract_context)
-        wp_query = (
-            f"project {project_name} work packages phases scope deliverables "
-            "prerequisites activities responsibilities risks acceptance criteria"
-        )
+    wp_context = ""
+    wp_search_query = f"project {project_code} {project_name} appendix A work packages phases scope deliverables list of all work packages phase 1 phase 2"
+
+    update_status(project_code, "Running Discovery Pass: Scanning for Work Packages...")
+
+    if collection_names:
+        for col_name in collection_names:
+            if "contract" in col_name.lower():
+                try:
+                    context = similarity_search(col_name, wp_search_query, k=30)
+                    wp_context += context + "\n"
+                except Exception as exc:
+                    debug += f"\n⚠️ Error querying {col_name} for WPs: {exc}"
+                    
+    if wp_context.strip():
+        # PASS 1: Discovery
+        discovery_prompt = WP_DISCOVERY_PROMPT.format(contract_context=wp_context)
+        discovered_phases = []
         try:
-            wp_response = llm.invoke(
-                [SystemMessage(content=wp_prompt), HumanMessage(content=wp_query)]
+            discovery_res = llm.invoke(
+                [SystemMessage(content=discovery_prompt), HumanMessage(content="list the work packages")]
             )
-            wp_result = _extract_json_from_response(wp_response.content)
-            if isinstance(wp_result, list):
-                work_packages = wp_result
-            elif isinstance(wp_result, dict) and "work_packages" in wp_result:
-                work_packages = wp_result["work_packages"]
-            debug += f"\n✅ Work packages extracted: {len(work_packages)} phases."
+            discovered_phases = _extract_json_from_response(discovery_res.content)
+            if isinstance(discovered_phases, dict) and "work_packages" in discovered_phases:
+                discovered_phases = discovered_phases["work_packages"]
+            
+            if not isinstance(discovered_phases, list):
+                discovered_phases = []
+            
+            # Post-discovery deduplication by wp_number to ensure 1:1 mapping for Pass 2
+            seen_wp_nums = set()
+            unique_phases = []
+            for p in discovered_phases:
+                wnum = p.get("wp_number")
+                if wnum and wnum not in seen_wp_nums:
+                    seen_wp_nums.add(wnum)
+                    unique_phases.append(p)
+                elif not wnum: # fallback if LLM missed the field
+                    unique_phases.append(p)
+            
+            discovered_phases = unique_phases
+            debug += f"\n✅ Pass 1: Discovered {len(discovered_phases)} unique phases."
         except Exception as exc:
-            debug += f"\n⚠️ Work package extraction error: {exc}"
+            debug += f"\n⚠️ Work package PASS 1 error: {exc}"
+
+        # PASS 2: Detail Extraction per phase
+        total_phases = len(discovered_phases)
+        for i, phase in enumerate(discovered_phases):
+            p_name = phase.get("phase_name")
+            p_order = phase.get("phase_order", 0)
+            if not p_name:
+                continue
+
+            update_status(project_code, f"Extracting deep specifics for Phase {i+1} of {total_phases}: {p_name}...")
+
+            detail_prompt = WP_DETAIL_PROMPT.format(
+                contract_context=wp_context,
+                phase_name=p_name,
+                phase_order=p_order
+            )
+            try:
+                detail_res = llm.invoke(
+                    [SystemMessage(content=detail_prompt), HumanMessage(content=f"extract details for {p_name}")]
+                )
+                phase_details = _extract_json_from_response(detail_res.content)
+                if isinstance(phase_details, dict):
+                    work_packages.append(phase_details)
+            except Exception as exc:
+                debug += f"\\n⚠️ Detail extraction failed for {p_name}: {exc}"
+                
+        if work_packages:
+            debug += f"\\n✅ Pass 2: Extracted detailed data for {len(work_packages)} phases."
+
+    update_status(project_code, "Merging all final datasets into Project DTO...")
 
     # ── Step 3: Merge all data sources ───────────────────────────────────────
     # Start with LLM-extracted SOW fields (flat fields for the Project table)
@@ -303,7 +377,9 @@ def data_extraction_agent_node(state: dict) -> dict:
     if work_packages:
         extracted["work_packages"] = work_packages
 
-    debug += "\n✅ Data Extraction Agent: merged Excel + SOW + Work Packages into project DTO."
+    debug += "\\n✅ Data Extraction Agent: merged Excel + SOW + Work Packages into project DTO."
+
+    print(f"\\n--- DATA EXTRACTION DEBUG LOG ---\\n{debug}\\n----------------------------------\\n")
 
     return {
         "extracted_data": extracted,

@@ -952,3 +952,123 @@ body {
     display: block;
   }
 }
+/* ─── Data Manager ──────────────────────────────────────────────────── */
+#data-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#data-content {
+  flex: 1;
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.data-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.inp-select {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  min-width: 200px;
+}
+
+.data-search {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.data-search input {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text);
+  width: 100%;
+  max-width: 300px;
+}
+
+#data-table-wrapper {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+  position: relative;
+}
+
+.data-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-muted);
+}
+
+.sql-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.sql-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-hover);
+  padding: 12px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.sql-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sql-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.btn-edit-cell {
+  background: none;
+  border: none;
+  color: var(--violet);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.5;
+}
+
+.btn-edit-cell:hover {
+  opacity: 1;
+  background: var(--violet-muted);
+}
+
+.editable-field {
+  cursor: pointer;
+}
+
+.editable-field:hover::after {
+  content: ' ✏️';
+  font-size: 0.7rem;
+}
