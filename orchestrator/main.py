@@ -358,6 +358,66 @@ def confirm_project(req: ProjectConfirmRequest):
     }
 
 
+@server.delete("/project/{project_code}")
+def drop_project(project_code: str):
+    """Permanently drop a project from SQLite, ChromaDB, and filesystem."""
+    import sqlite3
+    import chromadb
+    import shutil
+    
+    safe_code = project_code.replace(" ", "_").replace("-", "_").lower()
+    db_path = os.getenv("SQLITE_DB_PATH", "./data/openclaw.db")
+    db_abs = db_path if os.path.isabs(db_path) else os.path.abspath(os.path.join(PROJECT_ROOT, db_path))
+    
+    deleted_sqlite = False
+    if os.path.exists(db_abs):
+        try:
+            conn = sqlite3.connect(db_abs)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            cursor.execute("SELECT project_id FROM Project WHERE ProjectNumber = ?", (project_code,))
+            rows = cursor.fetchall()
+            for row in rows:
+                cursor.execute("DELETE FROM Project WHERE project_id = ?", (row[0],))
+                deleted_sqlite = True
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"SQLite deletion error: {e}")
+            
+    # Delete from ChromaDB
+    chroma_path = os.path.abspath(os.path.join(PROJECT_ROOT, os.getenv("CHROMA_DB_PATH", "./data/chroma_db")))
+    chroma_deleted_count = 0
+    try:
+        client = chromadb.PersistentClient(path=chroma_path)
+        for col in client.list_collections():
+            if col.name.startswith(f"{safe_code}_"):
+                client.delete_collection(col.name)
+                chroma_deleted_count += 1
+    except Exception as e:
+        print(f"Warning: ChromaDB deletion error: {e}")
+        
+    # Delete from filesystem
+    fs_deleted = False
+    project_dir = os.path.join(PROJECTS_DIR, safe_code)
+    if os.path.exists(project_dir):
+        try:
+            shutil.rmtree(project_dir)
+            fs_deleted = True
+        except Exception as e:
+            print(f"Warning: Filesystem deletion error: {e}")
+            
+    return {
+        "status": "ok",
+        "message": f"Dropped project {project_code}.",
+        "details": {
+            "sqlite_deleted": deleted_sqlite,
+            "chroma_collections_deleted": chroma_deleted_count,
+            "filesystem_deleted": fs_deleted
+        }
+    }
+
+
 @server.get("/raid/alerts")
 def get_raid_alerts():
     """

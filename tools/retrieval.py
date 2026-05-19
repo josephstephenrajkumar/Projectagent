@@ -70,3 +70,14 @@ def list_collections() -> list[str]:
         return [c.name for c in _get_client().list_collections()]
     except Exception:
         return []
+
+def get_all_documents(collection_name: str) -> list[str]:
+    """Fetch all documents from a specific collection for exhaustive scanning."""
+    try:
+        collection = _get_client().get_collection(collection_name)
+        result = collection.get()
+        if result and "documents" in result and result["documents"]:
+            return result["documents"]
+        return []
+    except Exception:
+        return []

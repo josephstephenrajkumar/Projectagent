@@ -58,3 +58,4 @@ logs/
 .idea/
 *.swp
 *.swo
+tools/credentials.json

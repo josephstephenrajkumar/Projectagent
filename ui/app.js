@@ -2,8 +2,8 @@
  * OpenClaw Chat UI – App Logic
  */
 
-const GATEWAY = "http://localhost:8000";
-const ORCHESTRATOR_URL = "http://localhost:8000";
+const GATEWAY = `${window.location.protocol}//${window.location.hostname}:8000`;
+const ORCHESTRATOR_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 
 // ─── DOM Refs ──────────────────────────────────────────────────────────────
 const get = (id) => document.getElementById(id);
@@ -41,6 +41,7 @@ const refs = {
     btnRefreshData: get("btn-refresh-data"),
     inpDataSearch: get("inp-data-search"),
     dataTableWrapper: get("data-table-wrapper"),
+    selDropProject: get("sel-drop-project"),
 };
 
 // ─── Status helpers ────────────────────────────────────────────────────────
@@ -224,6 +225,7 @@ function switchTab(tab) {
         refs.dataPanel.style.display = "flex";
         refs.navData?.classList.add("nav-active");
         loadTablesList();
+        if (typeof loadDropProjectsList === "function") loadDropProjectsList();
     }
 }
 
@@ -242,6 +244,23 @@ async function loadTablesList() {
             opt.innerText = table;
             refs.selTable.appendChild(opt);
         });
+    } catch {}
+}
+
+async function loadDropProjectsList() {
+    if (!refs.selDropProject) return;
+    try {
+        const res = await fetch(`${ORCHESTRATOR_URL}/db/table/Project`);
+        const data = await res.json();
+        refs.selDropProject.innerHTML = '<option value="">Select a Project to Drop...</option>';
+        if (data && data.rows) {
+            data.rows.forEach(row => {
+                const opt = document.createElement('option');
+                opt.value = row.ProjectNumber;
+                opt.innerText = `${row.customer || 'Unknown Customer'} (${row.ProjectNumber})`;
+                refs.selDropProject.appendChild(opt);
+            });
+        }
     } catch {}
 }
 
@@ -578,6 +597,41 @@ function init() {
             } finally {
                 refs.btnIngest.disabled = false;
                 refs.btnIngest.textContent = originalText;
+            }
+        };
+    }
+
+    const btnDropProject = get("btn-drop-project");
+    if (btnDropProject && refs.selDropProject) {
+        btnDropProject.onclick = async () => {
+            const code = refs.selDropProject.value;
+            if (!code) {
+                alert("Please select a Project Code to drop.");
+                return;
+            }
+            if (!confirm(`Are you sure you want to PERMANENTLY delete project '${code}' from SQLite, ChromaDB, and disk? This cannot be undone.`)) {
+                return;
+            }
+            
+            const originalText = btnDropProject.textContent;
+            btnDropProject.disabled = true;
+            btnDropProject.textContent = "⏳ Dropping...";
+            try {
+                const res = await fetch(`${GATEWAY}/project/${code}`, { method: "DELETE" });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`✅ ${data.message}`);
+                    refs.selDropProject.value = "";
+                    if (refs.selTable?.value) loadTableData(refs.selTable.value);
+                    loadDropProjectsList();
+                } else {
+                    alert(`❌ Failed to drop project: ${data.detail || data.message || 'Unknown error'}`);
+                }
+            } catch (err) {
+                alert("❌ Network error: " + err.message);
+            } finally {
+                btnDropProject.disabled = false;
+                btnDropProject.textContent = originalText;
             }
         };
     }

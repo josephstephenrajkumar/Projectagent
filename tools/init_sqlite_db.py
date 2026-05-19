@@ -156,6 +156,19 @@ def create_database():
     );
     """)
 
+    # 5. ProjectMonthlyHours Table (Normalized time-phased data)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ProjectMonthlyHours (
+        entry_id TEXT PRIMARY KEY,
+        project_id TEXT,
+        date DATETIME,
+        hours FLOAT,
+        cost FLOAT,
+        revenue FLOAT,
+        FOREIGN KEY(project_id) REFERENCES Project(project_id) ON DELETE CASCADE
+    );
+    """)
+
     conn.commit()
     conn.close()
     

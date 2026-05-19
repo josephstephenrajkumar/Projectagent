@@ -20,6 +20,40 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 llm = get_llm()
 
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from langchain_core.output_parsers import PydanticOutputParser
+
+class WorkPackagePhase(BaseModel):
+    phase_name: str = Field(description="The complete name and number of the work package (e.g. 'Work Package #1 - Project kick-off')")
+    phase_order: int = Field(description="The sequential order number (e.g. 1, 2, 3)")
+    wp_number: Optional[int] = Field(description="The work package number extracted from the title")
+
+class WorkPackageDiscovery(BaseModel):
+    work_packages: List[WorkPackagePhase] = Field(description="A comprehensive list of every work package title/number found in the text.")
+
+class WorkPackageDetail(BaseModel):
+    phase_name: str = Field(description="The complete name and number of the work package")
+    phase_order: int = Field(description="The sequential order number")
+    prerequisites: str = Field(description="Prerequisites for this phase", default="")
+    activities: str = Field(description="Key activities in this phase", default="")
+    customer_responsibilities: str = Field(description="Customer responsibilities", default="")
+    out_of_scope: str = Field(description="Out of scope items", default="")
+    risks_mitigations: str = Field(description="Risks and mitigations", default="")
+    deliverables: str = Field(description="Key deliverables", default="")
+    acceptance_criteria: str = Field(description="Acceptance criteria", default="")
+    overview: str = Field(description="A brief overview of the phase", default="")
+    engagement_summary: str = Field(description="A summary of the engagement model", default="")
+    scope: str = Field(description="The scope of work", default="")
+    tech_landscape: str = Field(description="The technology landscape involved", default="")
+    key_deliverables: str = Field(description="List of key deliverables", default="")
+    missing_items: str = Field(description="Any missing or unspecified items", default="")
+    next_steps: str = Field(description="Next steps after this phase", default="")
+    quick_summary: str = Field(description="A 1-2 sentence quick summary", default="")
+
+discovery_parser = PydanticOutputParser(pydantic_object=WorkPackageDiscovery)
+detail_parser = PydanticOutputParser(pydantic_object=WorkPackageDetail)
+
 # ── SOW Extraction prompt (adapted from the backup agent's prompt_str + sample_output_structure)
 SOW_EXTRACTION_PROMPT = """You are an AI assistant that helps extract structured contract information.
 Given the contract document context below, extract the following and return as a single JSON object.
@@ -86,50 +120,23 @@ identify every distinct work package or phase listing (e.g. "Work Package #1", "
 You must be EXHAUSTIVE. Appendix A often contains the full list from #1 to #11.
 Scan the entire context carefully and list EVERY single unique work package number you find.
 
-CRITICAL INSTRUCTION: Identify phases by their "Work Package #X" label. If multiple sections describe the same Work Package #, list it exactly once with its most complete name. Do not miss any numbers in the sequence (check for 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11).
+CRITICAL INSTRUCTION: Identify phases by their "Work Package #X" label. If multiple sections describe the same Work Package #, list it exactly once with its most complete name.
 
-Return ONLY a JSON array of objects:
-[
-  {{
-    "phase_name": "string – e.g. Work Package #1 - Project kick-off",
-    "phase_order": 1,
-    "wp_number": 1
-  }}
-]
+{format_instructions}
 
 --- Contract Document Context ---
 {contract_context}
+"""
 
-Return ONLY the JSON array. No markdown fences, no explanation."""
-
-WP_DETAIL_PROMPT = """You are an expert contract analyst. Based on the following SOW context,
+WP_DETAIL_PROMPT = """You are an expert contract analyst. Based on the following highly specific SOW context,
 extract the detailed scope for specifically this ONE phase: "{phase_name}"
 
-Return a single JSON object with these fields, keeping them extremely concise (1 sentence or 2 bullet points max):
-{{
-  "phase_name": "{phase_name}",
-  "phase_order": {phase_order},
-  "prerequisites": "string",
-  "activities": "string",
-  "customer_responsibilities": "string",
-  "out_of_scope": "string",
-  "risks_mitigations": "string",
-  "deliverables": "string",
-  "acceptance_criteria": "string",
-  "overview": "string",
-  "engagement_summary": "string",
-  "scope": "string",
-  "tech_landscape": "string",
-  "key_deliverables": "string",
-  "missing_items": "string",
-  "next_steps": "string",
-  "quick_summary": "string"
-}}
+Keep descriptions extremely concise (1 sentence or 2 bullet points max).
+{format_instructions}
 
 --- Contract Document Context ---
 {contract_context}
-
-Return ONLY the JSON object. No markdown fences, no explanation."""
+"""
 
 def _extract_json_from_response(text: str) -> dict:
     """Robustly extract a JSON object from an LLM response."""
@@ -239,78 +246,96 @@ def data_extraction_agent_node(state: dict) -> dict:
 
     # ── Step 2b: Work Package scope extraction (TWO-PASS) ────────────────────
     work_packages = []
-    wp_context = ""
-    wp_search_query = f"project {project_code} {project_name} appendix A work packages phases scope deliverables list of all work packages phase 1 phase 2"
-
-    update_status(project_code, "Running Discovery Pass: Scanning for Work Packages...")
-
+    
+    update_status(project_code, "Running Discovery Pass: Scanning all chunks for Work Packages...")
+    from tools.retrieval import get_all_documents
+    
+    all_chunks = []
     if collection_names:
         for col_name in collection_names:
             if "contract" in col_name.lower():
-                try:
-                    context = similarity_search(col_name, wp_search_query, k=30)
-                    wp_context += context + "\n"
-                except Exception as exc:
-                    debug += f"\n⚠️ Error querying {col_name} for WPs: {exc}"
-                    
-    if wp_context.strip():
-        # PASS 1: Discovery
-        discovery_prompt = WP_DISCOVERY_PROMPT.format(contract_context=wp_context)
+                docs = get_all_documents(col_name)
+                all_chunks.extend(docs)
+                
+    if all_chunks:
+        # PASS 1: Map-Reduce Discovery
         discovered_phases = []
-        try:
-            discovery_res = llm.invoke(
-                [SystemMessage(content=discovery_prompt), HumanMessage(content="list the work packages")]
-            )
-            discovered_phases = _extract_json_from_response(discovery_res.content)
-            if isinstance(discovered_phases, dict) and "work_packages" in discovered_phases:
-                discovered_phases = discovered_phases["work_packages"]
-            
-            if not isinstance(discovered_phases, list):
-                discovered_phases = []
-            
-            # Post-discovery deduplication by wp_number to ensure 1:1 mapping for Pass 2
-            seen_wp_nums = set()
-            unique_phases = []
-            for p in discovered_phases:
-                wnum = p.get("wp_number")
-                if wnum and wnum not in seen_wp_nums:
-                    seen_wp_nums.add(wnum)
-                    unique_phases.append(p)
-                elif not wnum: # fallback if LLM missed the field
-                    unique_phases.append(p)
-            
-            discovered_phases = unique_phases
-            debug += f"\n✅ Pass 1: Discovered {len(discovered_phases)} unique phases."
-        except Exception as exc:
-            debug += f"\n⚠️ Work package PASS 1 error: {exc}"
+        for i, chunk in enumerate(all_chunks):
+            # To save time and API costs, we only process chunks that might contain WP keywords
+            if "work package" in chunk.lower() or "phase" in chunk.lower() or "appendix" in chunk.lower():
+                try:
+                    discovery_prompt = WP_DISCOVERY_PROMPT.format(
+                        format_instructions=discovery_parser.get_format_instructions(),
+                        contract_context=chunk
+                    )
+                    discovery_res = llm.invoke([
+                        SystemMessage(content=discovery_prompt),
+                        HumanMessage(content="List any work packages found in this text exactly per the JSON schema.")
+                    ])
+                    # Parse using Pydantic output parser
+                    parsed = discovery_parser.invoke(discovery_res)
+                    discovered_phases.extend([wp.dict() for wp in parsed.work_packages])
+                except Exception as exc:
+                    pass
+
+        # Deduplication and Sort
+        seen_wp_nums = set()
+        unique_phases = []
+        for p in discovered_phases:
+            wnum = p.get("wp_number")
+            pname = p.get("phase_name")
+            if wnum and wnum not in seen_wp_nums:
+                seen_wp_nums.add(wnum)
+                unique_phases.append(p)
+            elif not wnum and pname not in [up.get("phase_name") for up in unique_phases]:
+                unique_phases.append(p)
+        
+        # Sort by wp_number if available
+        unique_phases.sort(key=lambda x: x.get("wp_number") or 999)
+        discovered_phases = unique_phases
+        debug += f"\n✅ Pass 1: Discovered {len(discovered_phases)} unique phases across all chunks."
 
         # PASS 2: Detail Extraction per phase
         total_phases = len(discovered_phases)
         for i, phase in enumerate(discovered_phases):
             p_name = phase.get("phase_name")
-            p_order = phase.get("phase_order", 0)
+            p_order = phase.get("phase_order", i + 1)
             if not p_name:
                 continue
 
             update_status(project_code, f"Extracting deep specifics for Phase {i+1} of {total_phases}: {p_name}...")
 
+            # Targeted Retrieval
+            phase_context = ""
+            specific_query = f"{p_name} scope deliverables prerequisites activities"
+            if collection_names:
+                for col_name in collection_names:
+                    if "contract" in col_name.lower():
+                        try:
+                            phase_context += similarity_search(col_name, specific_query, k=10) + "\n"
+                        except Exception:
+                            pass
+            
             detail_prompt = WP_DETAIL_PROMPT.format(
-                contract_context=wp_context,
+                format_instructions=detail_parser.get_format_instructions(),
                 phase_name=p_name,
-                phase_order=p_order
+                contract_context=phase_context
             )
+            
             try:
                 detail_res = llm.invoke(
-                    [SystemMessage(content=detail_prompt), HumanMessage(content=f"extract details for {p_name}")]
+                    [SystemMessage(content=detail_prompt), HumanMessage(content=f"extract strictly formatted details for {p_name}")]
                 )
-                phase_details = _extract_json_from_response(detail_res.content)
-                if isinstance(phase_details, dict):
-                    work_packages.append(phase_details)
+                parsed_detail = detail_parser.invoke(detail_res)
+                # Attach phase_order and convert to dict
+                phase_dict = parsed_detail.dict()
+                phase_dict["phase_order"] = p_order
+                work_packages.append(phase_dict)
             except Exception as exc:
-                debug += f"\\n⚠️ Detail extraction failed for {p_name}: {exc}"
+                debug += f"\n⚠️ Detail extraction failed for {p_name}: {exc}"
                 
         if work_packages:
-            debug += f"\\n✅ Pass 2: Extracted detailed data for {len(work_packages)} phases."
+            debug += f"\n✅ Pass 2: Extracted detailed data for {len(work_packages)} phases."
 
     update_status(project_code, "Merging all final datasets into Project DTO...")
 

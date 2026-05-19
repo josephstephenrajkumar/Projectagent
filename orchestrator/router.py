@@ -103,6 +103,9 @@ def _build_router_prompt() -> str:
     buckets.append(
         f"{next_i + 5}. 'general_agent': General conversation, off-topic, or greetings."
     )
+    buckets.append(
+        f"{next_i + 6}. 'email_agent': Use ONLY when the query explicitly asks to email, send an email, or send information to someone."
+    )
 
     return (
         "You are a Router. Classify the user query into EXACTLY one of:\n\n"
@@ -123,7 +126,7 @@ def router_node(state: AgentState) -> dict:
 
     valid_keys = (
         [COLLECTION_TO_AGENT.get(s, s + "_agent") for s in ROUTER_CONTEXT]
-        + ["both", "delete_agent", "pricing_agent", "risk_agent", "raid_update_agent", "general_agent"]
+        + ["both", "delete_agent", "pricing_agent", "risk_agent", "raid_update_agent", "email_agent", "general_agent"]
     )
 
     # 1. Prepare messages with history

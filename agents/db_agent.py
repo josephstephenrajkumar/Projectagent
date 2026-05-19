@@ -137,6 +137,26 @@ def _insert_work_packages(conn: sqlite3.Connection, project_id: str, work_packag
     return count
 
 
+def _insert_monthly_hours(conn: sqlite3.Connection, project_id: str, hours_data: dict) -> int:
+    """Insert monthly breakdown into ProjectMonthlyHours table. Returns count inserted."""
+    count = 0
+    # hours_data is the 'total_hours_json' structure
+    hours_per_month = hours_data.get("hours_per_month", {})
+    
+    # We may also have costs/revenue by month in invoicing or travel_expenses
+    # For now, we focus on the core requirement: Monthly Hours
+    for date_str, hours in hours_per_month.items():
+        entry_id = str(uuid.uuid4())
+        conn.execute(
+            """INSERT INTO ProjectMonthlyHours (entry_id, project_id, date, hours, cost, revenue)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (entry_id, project_id, date_str, hours, 0.0, 0.0)
+        )
+        count += 1
+    conn.commit()
+    return count
+
+
 def db_agent_node(state: dict) -> dict:
     """
     Validate and persist extracted project data and work packages to SQLite.
@@ -196,6 +216,19 @@ def db_agent_node(state: dict) -> dict:
         if work_packages:
             wp_count = _insert_work_packages(conn, new_id, work_packages)
 
+        # 5. Insert Monthly Hours (from total_hours_json)
+        total_hours_json = data.get("total_hours_json")
+        if total_hours_json:
+            import json
+            if isinstance(total_hours_json, str):
+                try:
+                    h_data = json.loads(total_hours_json)
+                    _insert_monthly_hours(conn, new_id, h_data)
+                except:
+                    pass
+            elif isinstance(total_hours_json, dict):
+                _insert_monthly_hours(conn, new_id, total_hours_json)
+
         return {
             "response": (
                 f"✅ Project created successfully!\n"
@@ -203,9 +236,10 @@ def db_agent_node(state: dict) -> dict:
                 f"• Project Number: {data.get('ProjectNumber')}\n"
                 f"• Opportunity ID: {data.get('OpportunityID')}\n"
                 f"• Customer: {data.get('customer')}\n"
-                f"• Work Packages: {wp_count} phases saved"
+                f"• Work Packages: {wp_count} phases saved\n"
+                f"• Monthly metrics populated in structured table"
             ),
-            "debug_log": debug + f"\n✅ DB Agent: inserted project {new_id} with {wp_count} work packages.",
+            "debug_log": debug + f"\n✅ DB Agent: inserted project {new_id} with {wp_count} work packages and monthly hrs.",
         }
     except Exception as exc:
         return {

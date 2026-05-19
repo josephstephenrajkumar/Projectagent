@@ -233,6 +233,19 @@
       <div id="data-table-wrapper">
         <p class="data-placeholder">Select a table to view and edit records.</p>
       </div>
+
+      <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--border);" />
+      
+      <div class="drop-project-section" style="background: rgba(255, 0, 0, 0.05); padding: 16px; border: 1px solid rgba(255, 0, 0, 0.2); border-radius: 8px;">
+        <h3 style="color: var(--red); margin-top: 0; margin-bottom: 8px;">🗑️ Drop Project</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Permanently delete a project from SQLite, ChromaDB, and remove uploaded files.</p>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="sel-drop-project" style="flex: 1; max-width: 300px;" class="inp-select">
+            <option value="">Select a Project to Drop...</option>
+          </select>
+          <button id="btn-drop-project" class="btn-primary" style="background: var(--red);">Drop Project</button>
+        </div>
+      </div>
     </div>
   </section>
 

@@ -1,0 +1,74 @@
+flowchart TD
+    %% Styling
+    classDef userNode fill:#f9d0c4,stroke:#333,stroke-width:2px;
+    classDef orchestration fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef agents fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef inference fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef data fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+    classDef observability fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+
+    %% External Triggers
+    User(("User / Chat UI")):::userNode
+    Gmail["Gmail API / MCP Integration"]:::userNode
+
+    %% Orchestration Layer
+    subgraph Orchestration ["LangGraph Orchestration Layer"]
+        Supervisor{"Supervisor / Router"}:::orchestration
+        Poller["Workflow/Email Poller"]:::orchestration
+        StateDB[("State Checkpointer SQLite")]:::data
+        
+        Supervisor --> StateDB
+        StateDB --> Supervisor
+        Poller --> StateDB
+        StateDB --> Poller
+    end
+
+    User -->|"Natural Language Query"| Supervisor
+    Gmail -->|"Poll Emails"| Poller
+    Poller -->|"Trigger Classification"| Supervisor
+
+    %% Agent Mesh
+    subgraph AgentMesh ["Specialized Agent Mesh"]
+        Classifier["Classifier Agent"]:::agents
+        SQLAgent["SQL Agent"]:::agents
+        RAGAgent["RAG Agent"]:::agents
+        ContractAgent["Contract Agent"]:::agents
+    end
+
+    Supervisor -->|"Route Intent"| Classifier
+    Supervisor -->|"Route Intent"| SQLAgent
+    Supervisor -->|"Route Intent"| RAGAgent
+    Supervisor -->|"Route Intent"| ContractAgent
+
+    %% Inference Engines
+    subgraph InferenceLayer ["Inference & Embeddings"]
+        Groq["Groq API (Fast LLM Inference)"]:::inference
+        vLLM["Local vLLMs (Heavy LLM Inference)"]:::inference
+        HF["Hugging Face (Local Embeddings)"]:::inference
+    end
+
+    AgentMesh -->|"Reasoning & Tool Calls"| Groq
+    AgentMesh -.->|"Fallback / Specialized"| vLLM
+
+    %% Data & Knowledge
+    subgraph DataStores ["Enterprise Data & Memory"]
+        SQLDB[("Relational DB (Projects & RAID)")]:::data
+        Chroma[("Chroma DB (Local Vector Store)")]:::data
+    end
+
+    SQLAgent -->|"Query & Execute INSERT"| SQLDB
+    SQLDB --> SQLAgent
+    Classifier -->|"Write RAID Items"| SQLDB
+    
+    RAGAgent -->|"Query"| HF
+    ContractAgent -->|"Query"| HF
+    HF -->|"Vector Search"| Chroma
+
+    %% Observability
+    subgraph ObservabilityLayer ["Monitoring & Observability"]
+        Langfuse["Langfuse SDK (Traces, Costs)"]:::observability
+    end
+
+    Orchestration -.->|"Graph Traces"| Langfuse
+    InferenceLayer -.->|"Token Usage & Latency"| Langfuse
+    AgentMesh -.->|"Tool Executions"| Langfuse

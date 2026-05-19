@@ -1,0 +1,36 @@
+# MCP Gmail Server Setup Guide
+
+To successfully run the `gmail_raid_poller.py` daemon, you must set up the `mcp-gmail` server and grant it access to your Gmail account.
+
+## 1. Google Cloud Configuration
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new Project (or select an existing one).
+3. In the left sidebar, go to **APIs & Services** > **Library**.
+4. Search for **Gmail API** and click **Enable**.
+5. Go to **APIs & Services** > **OAuth consent screen**.
+   - Select **External** (or Internal if using Workspace).
+   - Fill in the required fields (App name, User support email, Developer contact email).
+   - **Scopes**: Add the scope `https://mail.google.com/` (full access so it can search/read).
+   - **Test users**: Add your email address `joseph.stephenr@gmail.com` to the test users list.
+6. Go to **APIs & Services** > **Credentials**.
+   - Click **Create Credentials** > **OAuth client ID**.
+   - Application type: **Desktop app**.
+   - Click **Create**.
+7. Download the JSON file, rename it to `credentials.json`, and place it in the `tools` directory (i.e. `/home/joseph/projectAgent/tools/credentials.json`).
+
+## 2. Install Dependencies
+Run the following in your terminal to install the underlying MCP server and client libraries:
+
+```bash
+uv tool install mcp-gmail
+```
+*(If you do not have `uv` installed, you can use `pip install mcp-gmail mcp langchain`)
+
+The first time the poller runs, it will attempt to launch `uvx mcp-gmail` (or the equivalent python module). It will pause and ask you to click a link in your browser to log into your Google Account and approve the permissions. This generates a `token.json` file which runs headlessly on all future requests.
+
+## 3. Run the Poller
+Start the background daemon:
+```bash
+python3 /home/joseph/projectAgent/tools/gmail_raid_poller.py
+```
+This process will loop every 5 minutes forever.

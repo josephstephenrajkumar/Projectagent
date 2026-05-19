@@ -1,0 +1,19 @@
+# LLM Backend – Groq cloud (openai/gpt-oss-120b)
+GROQ_API_KEY=
+
+# Data paths
+CHROMA_DB_PATH=./data/chroma_db
+SOURCE_DATA_DIR=./data/docs
+
+# Embedding model (HuggingFace, local)
+EMBEDDING_MODEL=all-mpnet-base-v2
+
+# Orchestrator (FastAPI)
+ORCHESTRATOR_HOST=localhost
+ORCHESTRATOR_PORT=8000
+
+# ACP Agent Server
+ACP_PORT=8100
+
+# Gateway (Node.js)
+GATEWAY_PORT=3000

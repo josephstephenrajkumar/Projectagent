@@ -81,6 +81,15 @@ Columns:
 - ForecastAmount (FLOAT)
 - Status (TEXT)
 
+Table: ProjectMonthlyHours (Time-phased metrics)
+Columns:
+- entry_id (TEXT, Primary Key)
+- project_id (TEXT, Foreign Key to Project)
+- date (DATETIME)
+- hours (FLOAT)
+- cost (FLOAT)
+- revenue (FLOAT)
+
 Table: SemanticMap (Glossary)
 Columns:
 - keyword (TEXT, e.g. 'overdue', 'high priority')
@@ -157,7 +166,7 @@ CRITICAL RULES:
 4. Use 'Proj_Stage' instead of 'status'.
 5. Use 'ActiveCurrency' instead of 'currency'.
 6. Use 'Category' instead of 'Priority' for RAIDitems.
-7. ALWAYS JOIN Project and ProjectWorkPackage on 'project_id'.
+7. AVOID FAN-OUT: Never join the Project table to multiple one-to-many tables (e.g. `ProjectWorkPackage` AND `ProjectMonthlyHours`) in a single query when calculating SUM or COUNT. This will multiply the results (e.g. hours * number of phases).
 8. STRING COMPARISON: Always use `LIKE '%term%'` instead of `=` for customer names or project numbers.
 9. DO NOT interpret project numbers (e.g. 202021) as years. Do NOT add `strftime('%Y', ...)` filters unless the user explicitly mentions a year (e.g. 'in 2021').
 10. DO NOT output any markdown blocks (like ```sql). Output ONLY the raw SQL string or the word FALLBACK.
